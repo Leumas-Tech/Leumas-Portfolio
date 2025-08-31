@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Leumas · Portfolio</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <!-- Cosmic background -->
+<div id="bg">
+  <canvas id="stars" aria-hidden="true"></canvas>
+  <div id="nebula" aria-hidden="true"></div>
+  <div id="glows" aria-hidden="true"></div>
+</div>
+
+
+  <div class="shell">
+    <!-- Aside -->
+    <!-- ASIDE (replace your current <aside>...</aside>) -->
+<aside id="aside" class="aside pro">
+  <header class="a-head">
+    <div class="a-brand">
+      <div class="a-avatar-wrap">
+        <img id="avatar" class="avatar" alt="avatar">
+        <span id="availabilityBadge" class="a-badge" hidden>Available</span>
+      </div>
+      <h1 id="name" class="a-name">Your Name</h1>
+      <div id="role" class="a-role">Web Developer</div>
+    </div>
+
+
+
+<div class="a-ctas">
+  <a id="ctaHire" class="btn a-btn a-btn-primary" href="#" target="_blank" rel="noopener" hidden>Hire Me</a>
+  <div class="a-ico-row">
+
+  </div>
+</div>
+
+
+  </header>
+
+  <div class="a-divider"></div>
+
+  <section class="a-contact">
+<audio id="bgm" preload="auto" crossorigin="anonymous"></audio>
+
+    <a id="email" class="a-chip" href="#"><span>✉️</span><span>Email</span></a>
+    <a id="phone" class="a-chip" href="#"><span>📞</span><span>Call</span></a>
+    <div class="a-chip" aria-disabled="true"><span>📍</span><span id="location">Location</span></div>
+  </section>
+<button id="audioToggle" class="a-ico-btn" type="button" aria-pressed="false" title="Toggle music" hidden>🎙️</button>
+<section class="a-links" id="links">
+    
+    </section>
+
+  <div class="a-divider"></div>
+
+  <section class="a-facts" id="quickFacts" hidden>
+    <!-- Populated from resume/skills if present -->
+    <div class="a-fact">
+      <div class="a-fact-k">Focus</div>
+      <div class="a-fact-v" id="factFocus">Node.js · React</div>
+    </div>
+    <div class="a-fact">
+      <div class="a-fact-k">Location</div>
+      <div class="a-fact-v" id="factLocation">Elmwood Park, IL</div>
+    </div>
+    <div class="a-fact">
+      <div class="a-fact-k">Contact</div>
+      <div class="a-fact-v"><span id="factEmail">wbermudez@leumas.tech</span></div>
+    </div>
+  </section>
+</aside>
+
+
+    <!-- Content -->
+    <main class="content">
+      <nav class="tabs">
+        <button class="tab active" data-tab="about">About</button>
+        <button class="tab" data-tab="resume">Resume</button>
+        <button class="tab" data-tab="portfolio">Portfolio</button>
+        <button class="tab" data-tab="blog">Blog</button>
+        <button class="tab" data-tab="contact">Contact</button>
+      </nav>
+
+      <section id="view" class="view"></section>
+    </main>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

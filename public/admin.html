@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Admin</h1>
+    <div id="login">
+      <input type="password" id="password" placeholder="Password">
+      <button id="loginBtn">Login</button>
+    </div>
+    <div id="editor" style="display: none;">
+      <select id="fileSelector"></select>
+      <textarea id="fileContent" rows="20" style="width: 100%;"></textarea>
+      <button id="saveBtn">Save</button>
+    </div>
+  </div>
+  <script>
+    // IMPORTANT: Change this password!
+    const PASSWORD = 'password';
+
+    const login = document.getElementById('login');
+    const editor = document.getElementById('editor');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const fileSelector = document.getElementById('fileSelector');
+    const fileContent = document.getElementById('fileContent');
+    const saveBtn = document.getElementById('saveBtn');
+
+    loginBtn.addEventListener('click', () => {
+      if (passwordInput.value === PASSWORD) {
+        login.style.display = 'none';
+        editor.style.display = 'block';
+        loadFiles();
+      } else {
+        alert('Incorrect password');
+      }
+    });
+
+    async function loadFiles() {
+      const response = await fetch('/api/admin/data');
+      const files = await response.json();
+      fileSelector.innerHTML = files.map(f => `<option value="${f}">${f}</option>`).join('');
+      loadFile(files[0]);
+    }
+
+    async function loadFile(file) {
+      const response = await fetch(`/api/admin/data/${file}`);
+      const content = await response.text();
+      fileContent.value = content;
+    }
+
+    fileSelector.addEventListener('change', () => {
+      loadFile(fileSelector.value);
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const file = fileSelector.value;
+      const content = fileContent.value;
+      const response = await fetch(`/api/admin/data/${file}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content }),
+      });
+      if (response.ok) {
+        alert('File saved');
+      } else {
+        alert('Error saving file');
+      }
+    });
+  </script>
+</body>
+</html>

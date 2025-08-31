@@ -1,0 +1,28 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Build artifacts
+dist/
+build/
+.cache/
+
+# Editor folders
+.vscode/
+.idea/
+
+# Ignore dummy data folder

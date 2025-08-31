@@ -1,0 +1,30 @@
+{
+  "headline": "About Me",
+  "paragraphs": [
+    "I'm a creative full-stack developer focused on building clean, fast, and modular systems.",
+    "I enjoy turning complex problems into simple, beautiful and intuitive products.",
+    "My aim is to bring your message and identity to life in the most creative way."
+  ],
+  "doing": [
+    {
+      "icon": "🖥️",
+      "title": "Web Design",
+      "desc": "Modern, high-quality design with a professional finish."
+    },
+    {
+      "icon": "⚙️",
+      "title": "Web Development",
+      "desc": "Robust front-end + Node.js back-end engineering."
+    },
+    {
+      "icon": "📱",
+      "title": "Mobile Apps",
+      "desc": "Responsive PWAs and cross-platform apps."
+    },
+    {
+      "icon": "🧠",
+      "title": "Systems & Adapters",
+      "desc": "Composable APIs, microservices, and tooling."
+    }
+  ]
+}

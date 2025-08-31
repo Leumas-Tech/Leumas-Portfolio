@@ -1,0 +1,32 @@
+{
+  "education": [
+    {
+      "school": "Self-Directed Engineering",
+      "period": "2018 – Present",
+      "detail": "Built real products; learned by shipping."
+    }
+  ],
+  "experience": [
+    {
+      "role": "Founder / Product Engineer",
+      "company": "Leumas Technologies",
+      "period": "2020 – Present",
+      "detail": "Architected Node.js services, React apps, and adapter systems across multiple products."
+    },
+    {
+      "role": "Freelance Web Developer",
+      "company": "Various",
+      "period": "2019 – Present",
+      "detail": "Designed and delivered websites, dashboards, and automations for clients."
+    }
+  ],
+"skills": [
+  { "name": "JavaScript/TypeScript", "level": 5 },
+  { "name": "Node.js · Express",     "level": 5 },
+  { "name": "React · Vite",          "level": 4 },
+  { "name": "MongoDB · SQL",         "level": 4 },
+  { "name": "REST · WebSockets",     "level": 4 },
+  { "name": "UI/UX & Design Systems","level": 3 }
+]
+
+}

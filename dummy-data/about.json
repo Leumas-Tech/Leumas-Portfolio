@@ -1,0 +1,46 @@
+{
+  "headline": "Hi, I'm William",
+  "paragraphs": [
+    "Founder @ Leumas Tech",
+    "Full-stack engineer focused on Node.js + React ecosystems"
+  ],
+  "doing": [
+    {
+      "icon": "\ud83d\udcbb",
+      "title": "Web Apps",
+      "desc": "Building tools for devs & creators"
+    },
+    {
+      "icon": "\u2699\ufe0f",
+      "title": "APIs",
+      "desc": "Express/Node micro-services"
+    }
+  ],
+  "profile": {
+    "name": "William Bermudez",
+    "role": "Web Developer \u00b7 Founder @ Leumas Tech",
+    "avatar": "https://res.cloudinary.com/demo/image/upload/sample.jpg",
+    "available": "I think Therefore I am",
+    "contact": {
+      "email": "wbermudez@leumas.tech",
+      "phone": "+1 (773) 587-9896",
+      "location": "Elmwood Park, IL"
+    },
+    "links": [
+      {
+        "label": "GitHub",
+        "url": "https://github.com"
+      },
+      {
+        "label": "LinkedIn",
+        "url": "https://linkedin.com"
+      }
+    ],
+    "audio": {
+      "src": "https://res.cloudinary.com/demo/video/upload/song.mp3",
+      "autoplay": true,
+      "loop": true,
+      "volume": 0.35
+    }
+  }
+}

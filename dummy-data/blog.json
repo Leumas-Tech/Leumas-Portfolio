@@ -1,0 +1,10 @@
+{
+  "posts": [
+    {
+      "title": "Why I Build Tools",
+      "date": "2025-08-01",
+      "excerpt": "Thoughts on building developer-first tools.",
+      "url": "https://blog.example.com/post1"
+    }
+  ]
+}

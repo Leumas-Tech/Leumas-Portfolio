@@ -1,0 +1,29 @@
+{
+  "categories": ["All", "Web design", "Applications", "Web development"],
+  "items": [
+    {
+      "title": "Finance Dashboard",
+      "category": "Applications",
+      "thumb": "https://images.unsplash.com/photo-1551281044-8c08b4c4c2c5?w=900&q=60",
+      "link": "https://finance.leumas.tech"
+    },
+    {
+      "title": "SaaS Admin",
+      "category": "Web development",
+      "thumb": "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=900&q=60",
+      "link": "https://admin.leumas.tech"
+    },
+    {
+      "title": "Portfolio Theme",
+      "category": "Web design",
+      "thumb": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=900&q=60",
+      "link": "https://portfolio.leumas.tech"
+    },
+    {
+      "title": "Mobile UI Kit",
+      "category": "Applications",
+      "thumb": "https://images.unsplash.com/photo-1551650975-87deedd944c3?w=900&q=60",
+      "link": "https://ui-kit.leumas.tech"
+    }
+  ]
+}
