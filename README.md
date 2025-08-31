@@ -14,7 +14,7 @@ This project is a customizable, programmable resume website that you can host yo
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/your-username/programmable-resume.git
+    git clone https://github.com/Leumas-Tech/Leumas-Portfolio
     ```
 2.  **Install dependencies:**
     ```bash
