@@ -1,0 +1,33 @@
+{
+  "name": "William Bermudez",
+  "role": "Web Developer · Founder @ Leumas Tech",
+  "avatar": "https://res.cloudinary.com/dx25lltre/image/upload/v1707176122/Leumas/2_t6ap9y.svg",
+  "available": "",
+  "hireUrl": "https://calendly.com/your-link",
+  "contact": {
+    "email": "wbermudez@leumas.tech",
+    "phone": "+1 (773) 587-9896",
+    "location": "Elmwood Park, IL"
+  },
+  "links": [
+    { "label": "GitHub", "url": "https://github.com/" },
+    { "label": "LinkedIn", "url": "https://www.linkedin.com/" },
+    { "label": "Website", "url": "https://playground.leumas.tech" }
+  ],
+  "audio": {
+    "autoplay": true,
+    "loop": "playlist",              
+    "volume": 0.35,
+    "remember": false,
+    "playlist": [
+      {
+        "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140495/Audio/I_Don_t_Care_feat_jhwuhc.mp3",
+        "title": "I Don't Care"        
+      },
+      {
+        "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140285/Audio/Warriors_ncdyyl.mp3",
+        "title": "Warriors"
+      }
+    ]
+  }
+}

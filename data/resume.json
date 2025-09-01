@@ -1,0 +1,53 @@
+{
+  "education": [
+    {
+      "school": "High School (Diploma)",
+      "period": "2016 – 2020",
+      "detail": "Graduated in 2020."
+    },
+    {
+      "school": "Lewis University",
+      "period": "2020 – 2021",
+      "detail": "Computer Science. Left to pursue projects."
+    },
+    {
+      "school": "Triton College",
+      "period": "2021",
+      "detail": "CS / General Ed coursework (one semester)."
+    },
+    {
+      "school": "Kingsland University (Online)",
+      "period": "2021 – 2022",
+      "detail": "Full-Stack & Blockchain program (concurrent with Triton)."
+    },
+    {
+      "school": "Self-Directed Engineering",
+      "period": "2021 – Present",
+      "detail": "Learning by shipping tools, adapters, and apps."
+    }
+  ],
+  "experience": [
+    {
+      "role": "Founder / Product Engineer",
+      "company": "Leumas Technologies",
+      "period": "2020 – Present",
+      "detail": "Started Leumas Tech to build and brand my own tools. Architected Node.js microservices, React frontends, and adapter systems (Imperium, Leviathan, BulkForge)."
+    },
+    {
+      "role": "Freelance Web Developer",
+      "company": "Various",
+      "period": "2020 – Present",
+      "detail": "Delivered websites, dashboards, and automations. Focus: Node.js + React, adapters, DevTools."
+    }
+  ],
+  "skills": [
+    { "name": "JavaScript / TypeScript", "level": 5 },
+    { "name": "Node.js · Express", "level": 5 },
+    { "name": "React · Vite", "level": 4 },
+    { "name": "MongoDB · SQL", "level": 4 },
+    { "name": "REST · WebSockets", "level": 4 },
+    { "name": "UI/UX & Design Systems", "level": 3 },
+    { "name": "Adapters & Microservices", "level": 5 },
+    { "name": "Automation & Dev Tools", "level": 5 }
+  ]
+}

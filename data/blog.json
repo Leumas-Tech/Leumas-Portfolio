@@ -1,0 +1,16 @@
+{
+  "posts": [
+    {
+      "title": "Designing Adapter Systems",
+      "date": "2025-08-30",
+      "excerpt": "How I structure plug-and-play APIs and services for rapid shipping.",
+      "url": "#"
+    },
+    {
+      "title": "From Idea to Shipping in 48h",
+      "date": "2025-07-22",
+      "excerpt": "Notes on scoping, constraints, and MVP thinking.",
+      "url": "#"
+    }
+  ]
+}

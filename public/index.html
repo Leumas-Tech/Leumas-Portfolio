@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <title>Leumas · Portfolio</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Cosmic background -->
+  <div id="bg">
+    <canvas id="stars" aria-hidden="true"></canvas>
+    <div id="nebula" aria-hidden="true"></div>
+    <div id="glows" aria-hidden="true"></div>
+  </div>
+
+  <div class="shell">
+    <!-- Aside -->
+    <aside id="aside" class="aside pro">
+      <header class="a-head">
+        <div class="a-brand">
+          <div class="a-avatar-wrap">
+            <img id="avatar" class="avatar" alt="avatar">
+            <span id="availabilityBadge" class="a-badge" hidden>Available</span>
+          </div>
+          <h1 id="name" class="a-name">Your Name</h1>
+          <div id="role" class="a-role">Web Developer</div>
+        </div>
+
+        <div class="a-ctas">
+          <a id="ctaHire" class="btn a-btn a-btn-primary" href="#" target="_blank" rel="noopener" hidden>Hire Me</a>
+          <div class="a-ico-row"></div>
+        </div>
+      </header>
+
+      <div class="a-divider"></div>
+
+      <section class="a-contact">
+        <audio id="bgm" preload="auto" crossorigin="anonymous"></audio>
+        <a id="email" class="a-chip" href="#"><span>✉️</span><span>Email</span></a>
+        <a id="phone" class="a-chip" href="#"><span>📞</span><span>Call</span></a>
+        <div class="a-chip" aria-disabled="true"><span>📍</span><span id="location">Location</span></div>
+      </section>
+
+      <button id="audioToggle" class="a-ico-btn" type="button" aria-pressed="false" title="Toggle music" hidden>🎙️</button>
+
+      <section class="a-links" id="links"></section>
+
+      <div class="a-divider"></div>
+
+      <section class="a-facts" id="quickFacts" hidden>
+        <div class="a-fact">
+          <div class="a-fact-k">Focus</div>
+          <div class="a-fact-v" id="factFocus">Node.js · React</div>
+        </div>
+        <div class="a-fact">
+          <div class="a-fact-k">Location</div>
+          <div class="a-fact-v" id="factLocation">Elmwood Park, IL</div>
+        </div>
+        <div class="a-fact">
+          <div class="a-fact-k">Contact</div>
+          <div class="a-fact-v"><span id="factEmail">wbermudez@leumas.tech</span></div>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <nav class="tabs">
+        <button class="tab active" data-tab="about">About</button>
+        <button class="tab" data-tab="resume">Resume</button>
+        <button class="tab" data-tab="portfolio">Portfolio</button>
+        <button class="tab" data-tab="blog">Blog</button>
+        <button class="tab" data-tab="contact">Contact</button>
+      </nav>
+
+      <!-- Inline global search (always visible input; results appear below) -->
+      <section id="siteSearchCard" class="card" aria-label="Site search">
+        <div class="grid" style="grid-template-columns: 1fr auto; align-items:center;">
+          <input id="siteSearchInput" class="input" placeholder="Search the whole site (semantic). Try “Node microservices”, “Chicago”, “TypeScript leadership”…" aria-label="Search the whole site">
+          <div class="muted" id="siteSearchHint">Tip: press <span class="lsrch-kbd">⌘/Ctrl</span>+<span class="lsrch-kbd">K</span> for the command palette.</div>
+        </div>
+        <div id="siteSearchResults" class="grid" hidden></div>
+      </section>
+
+      <!-- Main view the router fills -->
+      <section id="view" class="view"></section>
+    </main>
+  </div>
+
+  <!-- Search engine (semantic + palette) -->
+  <script src="/search.js" defer></script>
+  <!-- App logic -->
+  <script src="/app.js" defer></script>
+
+  <!-- Lightweight binder for inline results -->
+  <script defer>
+    // Simple debounce
+    function __debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('siteSearchInput');
+      const results = document.getElementById('siteSearchResults');
+
+      if (!input || !results) return;
+
+      const escapeHTML = (s) => String(s||'').replace(/[&<>]/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;' }[m]));
+      const markQ = (text, q) => {
+        if (!q) return escapeHTML(text);
+        const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')','ig');
+        return escapeHTML(text).replace(re, '<mark class="lsrch">$1</mark>');
+      };
+
+      function render(items, q){
+        if (!items.length){
+          results.innerHTML = '<div class="muted">No matches. Try different terms.</div>';
+          results.hidden = false;
+          return;
+        }
+        results.innerHTML = items.map(it => `
+          <div class="trow sr-row" data-id="${escapeHTML(it.id)}" data-tab="${escapeHTML(it.tab)}" tabindex="0" role="button" aria-label="Go to ${escapeHTML(it.title)} in ${escapeHTML(it.section)}">
+            <div class="t-when">${escapeHTML(it.section)}${it.period ? ' — ' + escapeHTML(it.period) : ''}</div>
+            <div class="t-what">${markQ(it.title, q)}</div>
+            ${it.detail ? `<div class="t-desc">${markQ(it.detail, q)}</div>` : ''}
+            <div class="meta muted" style="margin-top:6px">Score: ${it.score.toFixed(3)}</div>
+          </div>
+        `).join('');
+        results.hidden = false;
+      }
+
+      const doSearch = __debounce(async () => {
+        const q = input.value.trim();
+        if (!q){
+          results.hidden = true;
+          results.innerHTML = '';
+          return;
+        }
+        const items = await window.LeumasSearch.search(q, 20);
+        render(items, q);
+      }, 140);
+
+      input.addEventListener('input', doSearch);
+      input.addEventListener('keydown', (e)=>{ if (e.key === 'Escape'){ input.value=''; results.hidden = true; results.innerHTML=''; } });
+
+      results.addEventListener('click', (e)=>{
+        const row = e.target.closest('.sr-row[data-id]');
+        if (!row) return;
+        const hit = { id: row.getAttribute('data-id'), tab: row.getAttribute('data-tab') };
+        window.navigateToSearchHit && window.navigateToSearchHit(hit);
+      });
+      results.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter'){
+          const row = e.target.closest('.sr-row[data-id]');
+          if (!row) return;
+          const hit = { id: row.getAttribute('data-id'), tab: row.getAttribute('data-tab') };
+          window.navigateToSearchHit && window.navigateToSearchHit(hit);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

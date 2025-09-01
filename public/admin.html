@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/spectre.css/0.5.9/spectre.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/spectre.css/0.5.9/spectre-exp.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/spectre.css/0.5.9/spectre-icons.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@json-editor/json-editor@latest/dist/jsoneditor.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header class="navbar">
+      <section class="navbar-section">
+        <a href="#" class="navbar-brand mr-2">Admin</a>
+      </section>
+    </header>
+    <div id="login" class="columns">
+      <div class="column col-4 col-mx-auto">
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input class="form-input" type="password" id="password" placeholder="Password">
+        </div>
+        <button id="loginBtn" class="btn btn-primary btn-block">Login</button>
+      </div>
+    </div>
+    <div id="editor-container" style="display: none;">
+      <div class="columns">
+        <div class="column col-3">
+          <ul id="fileList" class="nav"></ul>
+        </div>
+        <div class="column col-9">
+          <div id="editor_holder"></div>
+          <button id="saveBtn" class="btn btn-primary">Save</button>
+          <button id="addBtn" class="btn btn-success">Add New</button>
+          <button id="deleteBtn" class="btn btn-error">Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    // IMPORTANT: Change this password!
+    const PASSWORD = 'password';
+
+    const login = document.getElementById('login');
+    const editorContainer = document.getElementById('editor-container');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const fileList = document.getElementById('fileList');
+    const saveBtn = document.getElementById('saveBtn');
+    const addBtn = document.getElementById('addBtn');
+    const deleteBtn = document.getElementById('deleteBtn');
+    const editorHolder = document.getElementById('editor_holder');
+
+    let editor = null;
+    let currentFile = null;
+
+    loginBtn.addEventListener('click', () => {
+      if (passwordInput.value === PASSWORD) {
+        login.style.display = 'none';
+        editorContainer.style.display = 'block';
+        loadFiles();
+      } else {
+        alert('Incorrect password');
+      }
+    });
+
+    async function loadFiles() {
+      const response = await fetch('/api/admin/data');
+      const files = await response.json();
+      fileList.innerHTML = files.map(f => `<li class="nav-item"><a href="#" data-file="${f}">${f}</a></li>`).join('');
+      loadFile(files[0]);
+      currentFile = files[0];
+    }
+
+    async function loadFile(file) {
+      const response = await fetch(`/api/admin/data/${file}`);
+      const schema = await response.json();
+      if (editor) {
+        editor.destroy();
+      }
+      editor = new JSONEditor(editorHolder, {
+        schema: schema,
+        theme: 'spectre',
+        iconlib: 'spectre'
+      });
+      currentFile = file;
+    }
+
+    fileList.addEventListener('click', (e) => {
+      if (e.target.tagName === 'A') {
+        loadFile(e.target.dataset.file);
+      }
+    });
+
+    saveBtn.addEventListener('click', async () => {
+      const content = editor.getValue();
+      const response = await fetch(`/api/admin/data/${currentFile}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content: JSON.stringify(content, null, 2) }),
+        });
+      if (response.ok) {
+        alert('File saved');
+      } else {
+        alert('Error saving file');
+      }
+    });
+
+    addBtn.addEventListener('click', () => {
+      const newKey = prompt('Enter new key');
+      if (newKey) {
+        const currentValue = editor.getValue();
+        currentValue.push({ [newKey]: '' });
+        editor.setValue(currentValue);
+      }
+    });
+
+    deleteBtn.addEventListener('click', () => {
+      const selected = editor.getEditor('root').getActiveTab();
+      if (selected) {
+        const key = selected.split('.').pop();
+        const currentValue = editor.getValue();
+        const index = currentValue.findIndex(item => item.hasOwnProperty(key));
+        if (index > -1) {
+          currentValue.splice(index, 1);
+          editor.setValue(currentValue);
+        }
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "headline": "About Me",
+  "paragraphs": [
+    "I’m Will — a software engineer and a wannabe entrepreneur. I started Leumas Tech just to put my logo on gadgets and tools, but along the way I found out I actually love building stuff.",
+    "Programming became my lane, especially with Node.js. I like keeping things modular, fast, and clean so whatever I make can grow or plug into something bigger later.",
+    "At the core, I just like turning ideas into working systems. Doesn’t matter if it’s a small script, a full app, or a whole framework — if it works and it’s useful, that’s a win."
+  ],
+  "doing": [
+    {
+      "icon": "🖥️",
+      "title": "Web Design",
+      "desc": "Simple, modern layouts that don’t overcomplicate things."
+    },
+    {
+      "icon": "⚙️",
+      "title": "Web Development",
+      "desc": "Solid Node.js back-ends and React front-ends."
+    },
+    {
+      "icon": "📱",
+      "title": "Mobile Apps",
+      "desc": "Responsive PWAs and cross-platform apps that just work."
+    },
+    {
+      "icon": "🧠",
+      "title": "Systems & Adapters",
+      "desc": "Reusable APIs and microservices — the backbone of most of my projects."
+    }
+  ]
+}

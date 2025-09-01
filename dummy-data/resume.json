@@ -1,0 +1,31 @@
+{
+  "education": [
+    {
+      "period": "2015 - 2019",
+      "school": "University of Tech",
+      "detail": "B.S. in Computer Science"
+    }
+  ],
+  "experience": [
+    {
+      "period": "2019 - Present",
+      "role": "Founder",
+      "company": "Leumas Tech",
+      "detail": "Building creative tools and apps."
+    }
+  ],
+  "skills": [
+    {
+      "name": "JavaScript"
+    },
+    {
+      "name": "Node.js"
+    },
+    {
+      "name": "React"
+    },
+    {
+      "name": "MongoDB"
+    }
+  ]
+}
