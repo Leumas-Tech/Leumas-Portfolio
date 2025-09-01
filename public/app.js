@@ -8,7 +8,6 @@ const tabs = [...document.querySelectorAll('.tab')];
 // Audio (separated) + Analysis globals
 // ---------------------------
 let audioInitialized = false;
-let audioConfig = null;
 
 let _audioCtx = null;
 let _analyser = null;
@@ -58,50 +57,6 @@ const Beat = {
   }
 };
 
-// Expanding ripple rings (spawned on beats)
-class Ripple {
-  constructor(cx, cy, baseRadius, level) {
-    this.cx = cx; this.cy = cy;
-    this.r = baseRadius;
-    this.w = 12 + level * 34;
-    this.alpha = 0.16 + level * 0.24;
-    this.growth = 3 + level * 42;
-    this.decay = 0.985;
-    this.halo = 0.55 + level * 0.45;
-  }
-  step() {
-    this.r += this.growth;
-    this.alpha *= this.decay;
-    return this.alpha > 0.01;
-  }
-  draw(ctx) {
-    const a = Math.max(0, Math.min(1, this.alpha));
-    const grad = ctx.createRadialGradient(this.cx, this.cy, this.r, this.cx, this.cy, this.r + this.w);
-    grad.addColorStop(0, `rgba(140,190,255,${a})`);
-    grad.addColorStop(1, `rgba(140,190,255,0)`);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(this.cx, this.cy, this.r + this.w, 0, Math.PI * 2);
-    ctx.arc(this.cx, this.cy, this.r, 0, Math.PI * 2, true);
-    ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-
-    const haloA = a * this.halo * 0.35;
-    if (haloA > 0.01) {
-      const halo = ctx.createRadialGradient(this.cx, this.cy, this.r * 0.8, this.cx, this.cy, this.r * 1.6);
-      halo.addColorStop(0, `rgba(90,160,255,${haloA})`);
-      halo.addColorStop(1, `rgba(90,160,255,0)`);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = halo;
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy, this.r * 1.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-  }
-}
-
 // Sample overall music energy (0..1) + capture bins for Chladni modes
 const Spectrum = {
   lastBins: new Uint8Array(0),
@@ -128,159 +83,6 @@ function sampleMusicLevel(){
   Spectrum.level = level;
   return level;
 }
-
-
-
-// ---------------------------
-// Chladni Pattern *Background* (super subtle, behind starfield)
-// ---------------------------
-function initChladniBackground() {
-  const STAR_ID = 'stars';
-  const CHLADNI_ID = 'chladniBG';
-  if (document.getElementById(CHLADNI_ID)) return;
-
-  // Ensure #stars has a higher z-index so it's above Chladni
-  (function ensureStarZ() {
-    const style = document.createElement('style');
-    style.textContent = `
-      #${STAR_ID}{ position:fixed; inset:0; z-index:1; }
-      #${CHLADNI_ID}{
-        position:fixed; inset:0; z-index:0;
-        pointer-events:none;           /* never blocks UI */
-        opacity:.16;                   /* very subtle */
-        mix-blend-mode:screen;         /* glow into the universe */
-        filter: saturate(1.15) hue-rotate(8deg);
-      }
-      @supports not (mix-blend-mode: screen){
-        #${CHLADNI_ID}{ opacity:.10; } /* graceful fallback */
-      }
-      @media (prefers-reduced-motion: reduce){
-        #${CHLADNI_ID}{ display:none; }
-      }
-    `;
-    document.head.appendChild(style);
-  })();
-
-  // Create the canvas and insert it *before* the starfield so it's deeper
-  const cv = document.createElement('canvas');
-  cv.id = CHLADNI_ID;
-
-  const stars = document.getElementById(STAR_ID);
-  if (stars && stars.parentNode) {
-    stars.parentNode.insertBefore(cv, stars); // Chladni sits under stars
-  } else {
-    document.body.prepend(cv);
-  }
-
-  const ctx = cv.getContext('2d', { alpha: true, desynchronized: true });
-
-  let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
-  let t=0;
-
-  function resize(){
-    DPR = Math.min(2, window.devicePixelRatio||1);
-    W = cv.width  = Math.floor(window.innerWidth * DPR);
-    H = cv.height = Math.floor(window.innerHeight * DPR);
-    cv.style.width  = window.innerWidth + 'px';
-    cv.style.height = window.innerHeight + 'px';
-  }
-  window.addEventListener('resize', resize, { passive:true });
-  resize();
-
-  // Performance/feel tunables
-  const GRID   = 6;        // larger = faster, softer
-  const THRESH = 0.06;     // lower = more lines
-  const FADE   = 0.08;     // trail strength
-  const BASE_SPEED = 0.026;
-
-  // Offscreen buffer for cheap glow
-  const off = document.createElement('canvas');
-  const octx = off.getContext('2d');
-
-  function bands() {
-    // use your existing analyser + Spectrum
-    if (_analyser) {
-      if (!Spectrum.lastBins || Spectrum.lastBins.length === 0) {
-        const tmp = new Uint8Array(_analyser.frequencyBinCount);
-        _analyser.getByteFrequencyData(tmp);
-        Spectrum.lastBins = tmp;
-      }
-      const b = Spectrum.lastBins;
-      const L = b.length || 512;
-      const pick = k => (b[Math.max(1, Math.floor(L*k))] || 0) / 255;
-      const v1 = pick(0.02), v2 = pick(0.06), v3 = pick(0.12), v4 = pick(0.25), v5 = pick(0.40);
-
-      const f1 = 2 + Math.floor(6  * v1);
-      const f2 = 3 + Math.floor(8  * v2);
-      const f3 = 4 + Math.floor(10 * v3);
-      const f4 = 5 + Math.floor(12 * v4);
-      const f5 = 6 + Math.floor(14 * v5);
-
-      const speed = BASE_SPEED * (0.9 + Spectrum.level * 1.4);
-      return { F:[f1,f2,f3,f4,f5], speed };
-    }
-    return { F:[3,5,7,9,11], speed: BASE_SPEED };
-  }
-
-  function chladni(nx, ny, tt, F){
-    return (
-      Math.sin(F[2]*Math.PI*nx + tt) * Math.sin(F[4]*Math.PI*ny + tt) +
-      Math.sin(F[0]*Math.PI*nx - tt) * Math.sin(F[3]*Math.PI*ny - tt) +
-      0.5 * Math.sin(F[1]*Math.PI*(nx+ny) + tt*0.8)
-    );
-  }
-
-  function frame(){
-    // soft trail so it feels embedded
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = `rgba(0,0,0,${FADE})`;
-    ctx.fillRect(0,0,W,H);
-
-    const { F, speed } = bands();
-    t += speed;
-
-    // draw low-res then upscale with blur
-    off.width = Math.ceil(W / GRID);
-    off.height = Math.ceil(H / GRID);
-    const img = octx.getImageData(0,0,off.width,off.height);
-    const data = img.data;
-
-    let p = 0;
-    for (let y=0; y<off.height; y++){
-      const ny = y / off.height;
-      for (let x=0; x<off.width; x++){
-        const nx = x / off.width;
-        const z = chladni(nx, ny, t, F);
-        const onNode = Math.abs(z) < THRESH;
-        if (onNode){
-          // bluish white, subtle
-          data[p]   = 180;
-          data[p+1] = 215;
-          data[p+2] = 255;
-          data[p+3] = 185;
-        } else {
-          data[p+3] = 0;
-        }
-        p += 4;
-      }
-    }
-    octx.putImageData(img, 0, 0);
-
-    // Upscale & blend *under* stars
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.filter = `blur(${Math.max(1, GRID*0.8)}px)`;
-    ctx.drawImage(off, 0, 0, W, H);
-    ctx.filter = `blur(${Math.max(1.6, GRID)}px)`;
-    ctx.drawImage(off, 0, 0, W, H);
-    ctx.restore();
-
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
-}
-
-
 
 // ---------------------------
 // Audio elements and setup (audible + analysis separated)
@@ -309,6 +111,22 @@ function ensureAudioElements() {
   return { bgm, viz };
 }
 
+function ensureBgmAudible(){
+  try {
+    const { bgm } = ensureAudioElements();
+    if (!_audioCtx) return;
+    let node;
+    if (_mediaSourceMap.has(bgm)) node = _mediaSourceMap.get(bgm);
+    else {
+      node = _audioCtx.createMediaElementSource(bgm);
+      _mediaSourceMap.set(bgm, node);
+    }
+    // bgm must go BOTH to analyser (for visuals) and to destination (to hear it)
+    connectGraph(bgm, node, { toAnalyser:true, toDestination:true });
+  } catch(_) {}
+}
+
+
 // ===== Audio analysis init =====
 function initAudioAnalysis(elViz){
   if (!elViz) return;
@@ -319,20 +137,33 @@ function initAudioAnalysis(elViz){
     _audioCtx = new Ctx();
   }
 
-  if (_mediaSourceMap.has(elViz)) {
-    _srcNodeViz = _mediaSourceMap.get(elViz);
-  } else {
-    _srcNodeViz = _audioCtx.createMediaElementSource(elViz);
-    _mediaSourceMap.set(elViz, _srcNodeViz);
-  }
-
-  if (_analyser) { try { _analyser.disconnect(); } catch(_) {} }
-  _analyser = _audioCtx.createAnalyser();
-  _analyser.fftSize = 1024;
-  _analyser.smoothingTimeConstant = 0.6;
-
-  try { _srcNodeViz.connect(_analyser); } catch(_) {}
+// Switch analysis source to audible element and ensure it's audible
+let srcNode;
+if (_mediaSourceMap.has(bgm)) srcNode = _mediaSourceMap.get(bgm);
+else {
+  srcNode = _audioCtx.createMediaElementSource(bgm);
+  _mediaSourceMap.set(bgm, srcNode);
 }
+
+// Rebuild analyser (keep same settings)
+if (_analyser) { try { _analyser.disconnect(); } catch(_) {} }
+_analyser = _audioCtx.createAnalyser();
+_analyser.fftSize = 2048;
+_analyser.smoothingTimeConstant = 0.65;
+_analyser.minDecibels = -100;
+_analyser.maxDecibels = -10;
+
+// bgm → analyser AND → destination (so you hear it)
+connectGraph(bgm, srcNode, { toAnalyser:true, toDestination:true });
+
+_srcNodeViz = srcNode;
+_analysisEl = bgm;
+
+// kick playback if needed
+bgm.play().catch(()=>{});
+
+}
+
 
 // ---------------------------
 // Playlist engine
@@ -347,7 +178,7 @@ function loadTrackInto(el, track, {applyStart=true} = {}) {
   if (!el || !track) return;
   if (el.src !== track.src) el.src = track.src;
 
-  // Restore prior position first
+  // Restore prior position
   if (_remember) {
     try {
       const savedPos = parseFloat(localStorage.getItem(POS_KEY_PREFIX + track.src) || '0');
@@ -386,7 +217,6 @@ function wirePositionPersistence(bgm, track) {
   const onPause = () => { if (timer) { clearInterval(timer); timer = null; } };
   const onUnload = () => save();
 
-  // Avoid double-wiring
   if (!bgm._posHandlersWired) {
     bgm.addEventListener('play', onPlay);
     bgm.addEventListener('pause', onPause);
@@ -418,6 +248,10 @@ function loadCurrentTrack({applyStart=true} = {}) {
   loadTrackInto(viz, tr, {applyStart});
 
   initAudioAnalysis(viz);
+  ensureBgmAudible();
+
+if (!bgm.muted) bgm.play().catch(()=>{});
+if (viz.paused) viz.play().catch(()=>{});
 
   bgm.loop = (_loopMode === 'track');
   bgm.volume = _volume;
@@ -510,9 +344,9 @@ function setupAudio(config) {
   } else _trackIndex = 0;
 
   // Wire mute toggle button
-  const persistedMute = localStorage.getItem('leumas_audio_muted');
-  const initiallyMuted = (persistedMute === null) ? false : (persistedMute === 'true');
-  bgm.muted = initiallyMuted;
+const persistedMute = localStorage.getItem('leumas_audio_muted');
+const initiallyMuted = (persistedMute === null) ? false : (persistedMute === 'true');
+bgm.muted = initiallyMuted;
 
   btn.hidden = false;
   btn.setAttribute('aria-pressed', String(initiallyMuted));
@@ -546,7 +380,6 @@ function setupAudio(config) {
   loadCurrentTrack({applyStart:true});
   syncVizToBgm(bgm, viz);
 
-  // Only auto-play if the splash already captured a gesture
   if (_userGestureHappened && _autoplay) {
     bgm.play().catch(()=>{});
     viz.play().catch(()=>{});
@@ -910,6 +743,243 @@ function initStars() {
   }
   frame();
 }
+
+
+// ===== REPLACE your initAudioAnalysis(...) with THIS =====
+let _analysisEl = null;
+let _silentFrames = 0;
+
+function initAudioAnalysis(elViz){
+  if (!elViz) return;
+
+  if (!_audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    _audioCtx = new Ctx();
+  }
+
+  // Reuse/create source node for chosen element
+  let srcNode;
+  if (_mediaSourceMap.has(elViz)) {
+    srcNode = _mediaSourceMap.get(elViz);
+  } else {
+    srcNode = _audioCtx.createMediaElementSource(elViz);
+    _mediaSourceMap.set(elViz, srcNode);
+  }
+
+  // (Re)create analyser
+  if (_analyser) { try { _analyser.disconnect(); } catch(_) {} }
+  _analyser = _audioCtx.createAnalyser();
+  _analyser.fftSize = 2048;
+  _analyser.smoothingTimeConstant = 0.65;
+  _analyser.minDecibels = -100;
+  _analyser.maxDecibels = -10;
+
+  // Connect: viz → analyser (NOT to destination, it's muted)
+  connectGraph(elViz, srcNode, { toAnalyser:true, toDestination:false });
+
+  _srcNodeViz = srcNode;
+  _analysisEl = elViz;
+}
+
+
+// Helper: ensure analyser is getting non-zero data; if not, swap to bgm
+function ensureAnalyserSignal() {
+  if (!_analyser) return null;
+  const bins = new Uint8Array(_analyser.frequencyBinCount);
+  _analyser.getByteFrequencyData(bins);
+
+  let maxv = 0, sum = 0;
+  for (let i = 0; i < bins.length; i++) { const v = bins[i]; if (v > maxv) maxv = v; sum += v; }
+
+  if (maxv < 1) {
+    _silentFrames++;
+    if (_silentFrames > 24) { // ~0.4s @ 60fps
+      const { bgm } = ensureAudioElements();
+      if (bgm && _analysisEl !== bgm) {
+        // Switch analysis source to audible element
+        let srcNode;
+        if (_mediaSourceMap.has(bgm)) srcNode = _mediaSourceMap.get(bgm);
+        else {
+          srcNode = _audioCtx.createMediaElementSource(bgm);
+          _mediaSourceMap.set(bgm, srcNode);
+        }
+        try {
+          if (_analyser) { try { _analyser.disconnect(); } catch(_) {} }
+          _analyser = _audioCtx.createAnalyser();
+          _analyser.fftSize = 2048;
+          _analyser.smoothingTimeConstant = 0.65;
+          _analyser.minDecibels = -100;
+          _analyser.maxDecibels = -10;
+          srcNode.connect(_analyser);
+          _srcNodeViz = srcNode;
+          _analysisEl = bgm;
+        } catch(_) {}
+      }
+      _silentFrames = 0;
+    }
+  } else {
+    _silentFrames = 0;
+  }
+  return bins;
+}
+
+// Track which MediaElementSources are connected to destination
+// Route helpers
+const _destConnected = new WeakSet();
+
+function connectGraph(el, srcNode, { toAnalyser=true, toDestination=false }) {
+  try {
+    if (toAnalyser && _analyser) srcNode.connect(_analyser);
+    if (toDestination && !_destConnected.has(srcNode)) {
+      srcNode.connect(_audioCtx.destination);
+      _destConnected.add(srcNode);
+    }
+  } catch(_) {}
+}
+
+
+
+function initChladniBackground() {
+  const STAR_ID = 'stars';
+  const CHLADNI_ID = 'chladniBG';
+  if (document.getElementById(CHLADNI_ID)) return;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #${STAR_ID}{ position:fixed; inset:0; z-index:1; }
+    #${CHLADNI_ID}{ position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.18;
+      mix-blend-mode:screen; filter:saturate(1.08) hue-rotate(6deg); }
+    @supports not (mix-blend-mode: screen){ #${CHLADNI_ID}{ opacity:.12; } }
+    @media (prefers-reduced-motion: reduce){ #${CHLADNI_ID}{ display:none; } }
+  `;
+  document.head.appendChild(style);
+
+  const cv = document.createElement('canvas');
+  cv.id = CHLADNI_ID;
+  const stars = document.getElementById(STAR_ID);
+  if (stars && stars.parentNode) stars.parentNode.insertBefore(cv, stars);
+  else document.body.prepend(cv);
+
+  const ctx = cv.getContext('2d', { alpha:true, desynchronized:true });
+  let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
+  function resize(){ DPR=Math.min(2,window.devicePixelRatio||1);
+    W=cv.width=Math.floor(innerWidth*DPR); H=cv.height=Math.floor(innerHeight*DPR);
+    cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px'; }
+  addEventListener('resize', resize, { passive:true }); resize();
+
+  const GRID=6, BASE_THRESH=0.055, FADE=0.085;
+  const BLUR1=()=>Math.max(1, GRID*0.75), BLUR2=()=>Math.max(1.4, GRID);
+  const off=document.createElement('canvas'), octx=off.getContext('2d');
+  const { bgm } = (typeof ensureAudioElements==='function') ? ensureAudioElements() : { bgm:null };
+
+  // smoothing for parameters
+  const smooth = (prev, next, k=0.25)=> prev==null ? next : prev + (next-prev)*k;
+  let prevA=null, prevB=null, prevC=null, prevD=null, prevPhaseMul=null, prevThresh=null;
+
+  function bandWeightedCenter(bins, lo, hi){
+    const L = bins.length;
+    const ia = Math.max(0, Math.floor(L*lo));
+    const ib = Math.min(L-1, Math.floor(L*hi));
+    let wsum = 0, isum = 0;
+    for (let i=ia;i<=ib;i++){ const v=bins[i]; wsum += v; isum += v * i; }
+    const idx = wsum > 0 ? (isum / wsum) : (ia + ib) * 0.5;
+    return idx / (L-1); // 0..1
+  }
+
+  function modesFromSpectrum() {
+    // keep analyser alive & detect silence (swap to bgm if needed)
+    const bins = ensureAnalyserSignal();
+    if (!bins) return { a:3, b:4, c:5, d:2, phaseMul:1.0, thresh:BASE_THRESH };
+
+    // level
+    let sum=0; for (let i=0;i<bins.length;i++) sum+=bins[i];
+    const lvl = sum / (bins.length * 255);
+    Spectrum.level = lvl;
+    Spectrum.lastBins = bins;
+
+    // 4 semi-log bands → weighted centers
+    const cA = bandWeightedCenter(bins, 0.01, 0.06); // sub/low
+    const cB = bandWeightedCenter(bins, 0.06, 0.16); // low-mid
+    const cC = bandWeightedCenter(bins, 0.16, 0.32); // high-mid
+    const cD = bandWeightedCenter(bins, 0.32, 0.60); // treble
+
+    // map centers to 1..10 (like your sliders)
+    const mapMode = c => Math.max(1, Math.min(10, Math.round(1 + c * 9)));
+
+    let a = mapMode(cA), b = mapMode(cB), c = mapMode(cC), d = mapMode(cD);
+
+    // light smoothing so modes glide with music
+    a = prevA = smooth(prevA, a, 0.35);
+    b = prevB = smooth(prevB, b, 0.35);
+    c = prevC = smooth(prevC, c, 0.35);
+    d = prevD = smooth(prevD, d, 0.35);
+
+    // dynamics
+    const phaseMul = prevPhaseMul = smooth(prevPhaseMul, 0.9 + lvl*1.3, 0.25);
+    const thresh   = prevThresh   = Math.max(0.028, smooth(prevThresh, BASE_THRESH - lvl*0.02, 0.3));
+
+    return { a, b, c, d, phaseMul, thresh };
+  }
+
+  function chladni(nx, ny, t, A){
+    return (
+      Math.sin(A.a * Math.PI * nx + t) * Math.sin(A.b * Math.PI * ny + t) +
+      Math.sin(A.c * Math.PI * nx - t) * Math.sin(A.d * Math.PI * ny - t)
+    );
+  }
+
+  function frame(){
+    const P = modesFromSpectrum();
+    const tSong = (bgm && Number.isFinite(bgm.currentTime)) ? bgm.currentTime : performance.now()/1000;
+    const phase = tSong * (P.phaseMul || 1);
+
+    // fade trail (embed in universe)
+    ctx.globalCompositeOperation='source-over';
+    ctx.fillStyle=`rgba(0,0,0,${FADE})`;
+    ctx.fillRect(0,0,W,H);
+
+    // draw at low-res then upscale with glow
+    off.width = Math.ceil(W/GRID); off.height = Math.ceil(H/GRID);
+    const img = octx.getImageData(0,0,off.width,off.height);
+    const data = img.data;
+
+    const t = P.thresh || BASE_THRESH;
+    const lv = Math.min(1, (Spectrum.level||0) * 1.5 + 0.25);
+
+    let p=0;
+    for (let y=0;y<off.height;y++){
+      const ny = y/off.height;
+      for (let x=0;x<off.width;x++){
+        const nx = x/off.width;
+        const z = chladni(nx, ny, phase, P);
+        if (Math.abs(z) < t){
+          data[p]   = Math.floor(170 + 40*lv);
+          data[p+1] = Math.floor(210 + 20*lv);
+          data[p+2] = 255;
+          data[p+3] = Math.floor(150 + 80*lv);
+        } else {
+          data[p+3] = 0;
+        }
+        p += 4;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.filter = `blur(${BLUR1()}px)`;
+    ctx.drawImage(off, 0, 0, W, H);
+    ctx.filter = `blur(${BLUR2()}px)`;
+    ctx.drawImage(off, 0, 0, W, H);
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+
 
 // ---------------------------
 // Aside renderer (with audio button state) + calls setupAudio
@@ -1403,19 +1473,16 @@ async function go(tab) {
 // Wire tabs
 tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.tab)));
 
-// Create splash immediately, then later route
+// Create splash immediately (captures gesture), then route
 createSplashOverlay();
 
-// Initial route (load something behind the splash; users will land in Resume after click)
+// Initial route (preload something behind splash)
 const initial = (location.hash.replace('#/', '') || 'about');
 go(initial);
 
-
-initChladniBackground(); // ← add this BEFORE initStars(), so it's deeper
-
-// Init cosmic, music-reactive background & search
+// Init backgrounds (Chladni beneath stars), then search
+initChladniBackground(); // ← audio-locked Chladni background (behind)
 initStars();
-
 window.LeumasSearch && window.LeumasSearch.attachUI && window.LeumasSearch.attachUI();
 
 // ===== Optional: Next/Prev buttons if present =====
