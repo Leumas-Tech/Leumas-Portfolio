@@ -27,6 +27,9 @@ let _volume = 0.35;
 let _trackIndex = 0;
 let _cutTimer = null;
 
+// Flag set after splash click (gesture)
+let _userGestureHappened = false;
+
 // ---------------------------
 // Music-reactive helpers
 // ---------------------------
@@ -125,6 +128,159 @@ function sampleMusicLevel(){
   Spectrum.level = level;
   return level;
 }
+
+
+
+// ---------------------------
+// Chladni Pattern *Background* (super subtle, behind starfield)
+// ---------------------------
+function initChladniBackground() {
+  const STAR_ID = 'stars';
+  const CHLADNI_ID = 'chladniBG';
+  if (document.getElementById(CHLADNI_ID)) return;
+
+  // Ensure #stars has a higher z-index so it's above Chladni
+  (function ensureStarZ() {
+    const style = document.createElement('style');
+    style.textContent = `
+      #${STAR_ID}{ position:fixed; inset:0; z-index:1; }
+      #${CHLADNI_ID}{
+        position:fixed; inset:0; z-index:0;
+        pointer-events:none;           /* never blocks UI */
+        opacity:.16;                   /* very subtle */
+        mix-blend-mode:screen;         /* glow into the universe */
+        filter: saturate(1.15) hue-rotate(8deg);
+      }
+      @supports not (mix-blend-mode: screen){
+        #${CHLADNI_ID}{ opacity:.10; } /* graceful fallback */
+      }
+      @media (prefers-reduced-motion: reduce){
+        #${CHLADNI_ID}{ display:none; }
+      }
+    `;
+    document.head.appendChild(style);
+  })();
+
+  // Create the canvas and insert it *before* the starfield so it's deeper
+  const cv = document.createElement('canvas');
+  cv.id = CHLADNI_ID;
+
+  const stars = document.getElementById(STAR_ID);
+  if (stars && stars.parentNode) {
+    stars.parentNode.insertBefore(cv, stars); // Chladni sits under stars
+  } else {
+    document.body.prepend(cv);
+  }
+
+  const ctx = cv.getContext('2d', { alpha: true, desynchronized: true });
+
+  let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
+  let t=0;
+
+  function resize(){
+    DPR = Math.min(2, window.devicePixelRatio||1);
+    W = cv.width  = Math.floor(window.innerWidth * DPR);
+    H = cv.height = Math.floor(window.innerHeight * DPR);
+    cv.style.width  = window.innerWidth + 'px';
+    cv.style.height = window.innerHeight + 'px';
+  }
+  window.addEventListener('resize', resize, { passive:true });
+  resize();
+
+  // Performance/feel tunables
+  const GRID   = 6;        // larger = faster, softer
+  const THRESH = 0.06;     // lower = more lines
+  const FADE   = 0.08;     // trail strength
+  const BASE_SPEED = 0.026;
+
+  // Offscreen buffer for cheap glow
+  const off = document.createElement('canvas');
+  const octx = off.getContext('2d');
+
+  function bands() {
+    // use your existing analyser + Spectrum
+    if (_analyser) {
+      if (!Spectrum.lastBins || Spectrum.lastBins.length === 0) {
+        const tmp = new Uint8Array(_analyser.frequencyBinCount);
+        _analyser.getByteFrequencyData(tmp);
+        Spectrum.lastBins = tmp;
+      }
+      const b = Spectrum.lastBins;
+      const L = b.length || 512;
+      const pick = k => (b[Math.max(1, Math.floor(L*k))] || 0) / 255;
+      const v1 = pick(0.02), v2 = pick(0.06), v3 = pick(0.12), v4 = pick(0.25), v5 = pick(0.40);
+
+      const f1 = 2 + Math.floor(6  * v1);
+      const f2 = 3 + Math.floor(8  * v2);
+      const f3 = 4 + Math.floor(10 * v3);
+      const f4 = 5 + Math.floor(12 * v4);
+      const f5 = 6 + Math.floor(14 * v5);
+
+      const speed = BASE_SPEED * (0.9 + Spectrum.level * 1.4);
+      return { F:[f1,f2,f3,f4,f5], speed };
+    }
+    return { F:[3,5,7,9,11], speed: BASE_SPEED };
+  }
+
+  function chladni(nx, ny, tt, F){
+    return (
+      Math.sin(F[2]*Math.PI*nx + tt) * Math.sin(F[4]*Math.PI*ny + tt) +
+      Math.sin(F[0]*Math.PI*nx - tt) * Math.sin(F[3]*Math.PI*ny - tt) +
+      0.5 * Math.sin(F[1]*Math.PI*(nx+ny) + tt*0.8)
+    );
+  }
+
+  function frame(){
+    // soft trail so it feels embedded
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgba(0,0,0,${FADE})`;
+    ctx.fillRect(0,0,W,H);
+
+    const { F, speed } = bands();
+    t += speed;
+
+    // draw low-res then upscale with blur
+    off.width = Math.ceil(W / GRID);
+    off.height = Math.ceil(H / GRID);
+    const img = octx.getImageData(0,0,off.width,off.height);
+    const data = img.data;
+
+    let p = 0;
+    for (let y=0; y<off.height; y++){
+      const ny = y / off.height;
+      for (let x=0; x<off.width; x++){
+        const nx = x / off.width;
+        const z = chladni(nx, ny, t, F);
+        const onNode = Math.abs(z) < THRESH;
+        if (onNode){
+          // bluish white, subtle
+          data[p]   = 180;
+          data[p+1] = 215;
+          data[p+2] = 255;
+          data[p+3] = 185;
+        } else {
+          data[p+3] = 0;
+        }
+        p += 4;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+
+    // Upscale & blend *under* stars
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.filter = `blur(${Math.max(1, GRID*0.8)}px)`;
+    ctx.drawImage(off, 0, 0, W, H);
+    ctx.filter = `blur(${Math.max(1.6, GRID)}px)`;
+    ctx.drawImage(off, 0, 0, W, H);
+    ctx.restore();
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+
 
 // ---------------------------
 // Audio elements and setup (audible + analysis separated)
@@ -317,6 +473,10 @@ function setupAudio(config) {
     b.id = 'audioToggle';
     b.className = 'audio-toggle';
     b.textContent = '🎙️';
+    b.style.position = 'fixed';
+    b.style.right = '14px';
+    b.style.bottom = '14px';
+    b.style.zIndex = '50';
     document.body.appendChild(b);
     return b;
   })();
@@ -382,32 +542,12 @@ function setupAudio(config) {
     }
   };
 
-  // Load and optionally autoplay
+  // Load and (if already clicked splash) autoplay
   loadCurrentTrack({applyStart:true});
   syncVizToBgm(bgm, viz);
 
-  // Autoplay / user-gesture unlock (important for mobile + some desktop policies)
-  const unlock = () => {
-    if (!_audioCtx) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (Ctx) { _audioCtx = new Ctx(); }
-    } else if (_audioCtx.state === 'suspended') {
-      _audioCtx.resume().catch(()=>{});
-    }
-    const pressed = btn.getAttribute('aria-pressed') === 'true';
-    if (!pressed && bgm.paused) bgm.play().catch(()=>{});
-    if (viz.paused) viz.play().catch(()=>{});
-    window.removeEventListener('pointerdown', unlock);
-    window.removeEventListener('keydown', unlock);
-  };
-
-  if (!audioInitialized) {
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-    audioInitialized = true;
-  }
-
-  if (_autoplay) {
+  // Only auto-play if the splash already captured a gesture
+  if (_userGestureHappened && _autoplay) {
     bgm.play().catch(()=>{});
     viz.play().catch(()=>{});
   }
@@ -424,7 +564,187 @@ function setupAudio(config) {
 }
 
 // ---------------------------
-// Starfield + visuals
+// Splash Overlay (Click-to-Start)
+// ---------------------------
+function createSplashOverlay() {
+  // Styles
+  const css = `
+  #splashOverlay {
+    position: fixed; inset: 0; z-index: 9999; overflow: hidden;
+    display: grid; place-items: center; background: radial-gradient(1200px 800px at 50% 40%, #0b1530 0%, #050912 50%, #02050a 100%);
+    color: #e8f4ff; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  }
+  #splashOverlay.fade-out { opacity: 0; transition: opacity .6s ease; pointer-events: none; }
+  #splashSky, #splashNebula {
+    position: absolute; inset: 0; width: 100%; height: 100%; display:block;
+  }
+  #splashNebula { mix-blend-mode: screen; opacity: .65; }
+  .splash-center {
+    position: relative; z-index: 2; text-align: center; padding: 24px 18px; max-width: 900px;
+  }
+  .splash-logo {
+    width: 220px; height: auto; opacity: .95; filter: drop-shadow(0 6px 30px rgba(120,210,255,.25));
+    transform: translateZ(0);
+  }
+  .splash-title {
+    margin: 18px 0 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+    background: linear-gradient(90deg, #9fd2ff, #d4e9ff 40%, #9fd2ff 80%); -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 20px rgba(140,200,255,.18), 0 0 40px rgba(140,200,255,.12);
+    font-size: clamp(24px, 5vw, 40px);
+  }
+  .splash-tag {
+    color: #9bb7d8; margin-bottom: 18px; font-size: clamp(14px, 2.6vw, 16px);
+  }
+  .splash-cta {
+    display: inline-flex; gap: 10px; align-items: center; justify-content: center;
+    padding: 12px 18px; border-radius: 999px; border: 1px solid rgba(150,210,255,.35);
+    background: linear-gradient(180deg, rgba(20,40,80,.65), rgba(8,16,32,.65));
+    box-shadow: 0 10px 40px rgba(80,160,255,.25), inset 0 1px 0 rgba(255,255,255,.08);
+    color: #e8f4ff; font-weight: 700; letter-spacing:.02em; cursor: pointer; user-select:none; -webkit-user-select:none;
+    transform: translateZ(0);
+  }
+  .splash-cta:hover { box-shadow: 0 12px 48px rgba(80,160,255,.33), inset 0 1px 0 rgba(255,255,255,.12); transform: translateY(-1px); }
+  .splash-cta:active { transform: translateY(0); }
+  .pulse {
+    width: 9px; height: 9px; border-radius: 999px; background: #9fd2ff; position: relative;
+  }
+  .pulse::after {
+    content:''; position:absolute; inset:-8px; border-radius:999px; border:2px solid rgba(160,210,255,.55); animation: pulse 1.6s infinite ease-out;
+  }
+  @keyframes pulse {
+    0% { transform: scale(.6); opacity: .9; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .splash-foot {
+    margin-top: 12px; font-size: 12px; color: #7aa7d7; opacity:.9;
+  }`;
+  const style = document.createElement('style');
+  style.id = 'splashStyles';
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  // Structure
+  const overlay = document.createElement('div');
+  overlay.id = 'splashOverlay';
+  overlay.innerHTML = `
+    <canvas id="splashSky" aria-hidden="true"></canvas>
+    <canvas id="splashNebula" aria-hidden="true"></canvas>
+    <div class="splash-center">
+      <img class="splash-logo" src="https://res.cloudinary.com/dx25lltre/image/upload/v1707175639/Leumas/Leumas_Tech_Logo_900_x_300_io3gk6.png" alt="Leumas Tech logo" />
+      <div class="splash-title">Leumas Technologies</div>
+      <div class="splash-tag">Dream • Build • Deploy — Crafted Systems & Adaptive Intelligence</div>
+      <button id="splashStart" class="splash-cta" aria-label="Click to get started">
+        <span class="pulse" aria-hidden="true"></span>
+        Click to get started
+      </button>
+      <div class="splash-foot">Tip: audio starts after you click</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Starfield + nebula anim (independent of main)
+  const sky = overlay.querySelector('#splashSky');
+  const neb = overlay.querySelector('#splashNebula');
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  let W=0, H=0, t=0;
+
+  function resize() {
+    W = sky.width = Math.floor(window.innerWidth * DPR);
+    H = sky.height = Math.floor(window.innerHeight * DPR);
+    sky.style.width = window.innerWidth + 'px';
+    sky.style.height = window.innerHeight + 'px';
+
+    neb.width = W; neb.height = H;
+    neb.style.width = window.innerWidth + 'px';
+    neb.style.height = window.innerHeight + 'px';
+
+    spawnStars();
+  }
+  const layers = [
+    { depth:.35, color:[210,235,255], stars:[], count:0 },
+    { depth:.75, color:[180,215,255], stars:[], count:0 },
+    { depth:1.2, color:[150,195,255], stars:[], count:0 },
+  ];
+  function spawnStars(){
+    const base = (W*H)/(9000*DPR);
+    layers[0].count = Math.floor(base*.85);
+    layers[1].count = Math.floor(base*1.0);
+    layers[2].count = Math.floor(base*1.25);
+    layers.forEach(L=>{
+      L.stars = Array.from({length:L.count}, ()=>({
+        x: Math.random()*W, y: Math.random()*H,
+        s: (Math.random()*1.4 + 0.3)*DPR*(0.7+L.depth*0.5),
+        a: 0.4 + Math.random()*0.6,
+        tw: Math.random()*0.015 + 0.003,
+      }));
+    });
+  }
+  function frame(){
+    t++;
+    const ctx = sky.getContext('2d');
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,W,H);
+
+    // nebula glow
+    const nx = neb.getContext('2d');
+    nx.setTransform(1,0,0,1,0,0);
+    nx.clearRect(0,0,W,H);
+    const g1 = nx.createRadialGradient(W*0.35,H*0.4, 0, W*0.35,H*0.4, Math.max(W,H)*0.6);
+    g1.addColorStop(0, 'rgba(90,140,255,0.18)');
+    g1.addColorStop(1, 'rgba(90,140,255,0)');
+    nx.fillStyle = g1; nx.fillRect(0,0,W,H);
+    const g2 = nx.createRadialGradient(W*0.7,H*0.65, 0, W*0.7,H*0.65, Math.max(W,H)*0.55);
+    g2.addColorStop(0, 'rgba(160,220,255,0.14)');
+    g2.addColorStop(1, 'rgba(160,220,255,0)');
+    nx.fillStyle = g2; nx.fillRect(0,0,W,H);
+
+    layers.forEach(L=>{
+      const [r,g,b] = L.color;
+      L.stars.forEach(s=>{
+        s.a += (Math.random()-0.5)*s.tw;
+        s.a = Math.max(0.15, Math.min(1, s.a));
+        ctx.globalAlpha = s.a;
+        ctx.fillStyle = `rgba(${r},${g},${b},1)`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.s, 0, Math.PI*2); ctx.fill();
+
+        ctx.globalAlpha = s.a * 0.25;
+        ctx.fillStyle = `rgba(${Math.max(120,r-20)},${Math.min(230,g+10)},255,1)`;
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.s*(2.5 + Math.sin((t+s.x*.01)*.03)*.4), 0, Math.PI*2); ctx.fill();
+      });
+    });
+
+    requestAnimationFrame(frame);
+  }
+  window.addEventListener('resize', resize);
+  resize(); frame();
+
+  // Unlock + route on click
+  overlay.querySelector('#splashStart').addEventListener('click', async () => {
+    _userGestureHappened = true;
+
+    // Initialize / resume AudioContext right now (gesture)
+    if (!_audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) _audioCtx = new Ctx();
+    } else if (_audioCtx.state === 'suspended') {
+      try { await _audioCtx.resume(); } catch {}
+    }
+
+    // Route into resume portal (this triggers fetch → renderAside → setupAudio)
+    go('resume');
+
+    // Fade out and remove
+    overlay.classList.add('fade-out');
+    setTimeout(() => {
+      overlay.remove();
+      const s = document.getElementById('splashStyles');
+      if (s) s.remove();
+    }, 620);
+  });
+}
+
+// ---------------------------
+// Starfield + visuals (main background)
 // ---------------------------
 function initStars() {
   const canvas = document.getElementById('stars');
@@ -597,7 +917,7 @@ function initStars() {
 function renderAside(profile, resumeData) {
   if (!profile) return;
 
-  // NEW: supports {audio:{src}} or {audio:{playlist:[...]}}
+  // Supports {audio:{src}} or {audio:{playlist:[...]}}
   if (profile.audio) {
     setupAudio(profile.audio);
   }
@@ -1083,12 +1403,19 @@ async function go(tab) {
 // Wire tabs
 tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.tab)));
 
-// Initial route
+// Create splash immediately, then later route
+createSplashOverlay();
+
+// Initial route (load something behind the splash; users will land in Resume after click)
 const initial = (location.hash.replace('#/', '') || 'about');
 go(initial);
 
+
+initChladniBackground(); // ← add this BEFORE initStars(), so it's deeper
+
 // Init cosmic, music-reactive background & search
 initStars();
+
 window.LeumasSearch && window.LeumasSearch.attachUI && window.LeumasSearch.attachUI();
 
 // ===== Optional: Next/Prev buttons if present =====
