@@ -43,5 +43,6 @@ function mount(router) {
 
 module.exports = {
   mount,
+  loadAdapters,
   list: () => loadAdapters().map(a => a.id),
 };

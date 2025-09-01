@@ -15,9 +15,21 @@
     { "label": "Website", "url": "https://playground.leumas.tech" }
   ],
   "audio": {
-    "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140495/Audio/I_Don_t_Care_feat_jhwuhc.mp3",   
     "autoplay": true,
-    "loop": true,
-    "volume": 0.35                 
+    "loop": "playlist",              
+    "volume": 0.35,
+    "remember": true,
+    "playlist": [
+      {
+        "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140495/Audio/I_Don_t_Care_feat_jhwuhc.mp3",
+        "title": "I Don't Care",
+        "startAt": 0,               
+        "durationSec": 75           
+      },
+      {
+        "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140285/Audio/Warriors_ncdyyl.mp3",
+        "title": "Warriors"
+      }
+    ]
   }
 }

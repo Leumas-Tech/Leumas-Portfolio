@@ -1,5 +1,3 @@
-// public/app.js
-
 // ---------------------------
 // DOM references
 // ---------------------------
@@ -18,6 +16,16 @@ let _srcNodeViz = null;
 
 const _mediaSourceMap = new WeakMap(); // HTMLMediaElement -> MediaElementSourceNode
 const POS_KEY_PREFIX = 'leumas_audio_pos::';
+
+// Playlist engine state
+const LAST_TRACK_KEY = 'leumas_audio_last_track';
+let _playlist = [];
+let _loopMode = 'playlist'; // 'playlist' | 'track' | false
+let _autoplay = true;
+let _remember = true;
+let _volume = 0.35;
+let _trackIndex = 0;
+let _cutTimer = null;
 
 // ---------------------------
 // Music-reactive helpers
@@ -52,11 +60,11 @@ class Ripple {
   constructor(cx, cy, baseRadius, level) {
     this.cx = cx; this.cy = cy;
     this.r = baseRadius;
-    this.w = 12 + level * 34;        // ring thickness
+    this.w = 12 + level * 34;
     this.alpha = 0.16 + level * 0.24;
-    this.growth = 3 + level * 42;    // px/frame
-    this.decay = 0.985;              // alpha decay per frame
-    this.halo = 0.55 + level * 0.45; // outer glow factor
+    this.growth = 3 + level * 42;
+    this.decay = 0.985;
+    this.halo = 0.55 + level * 0.45;
   }
   step() {
     this.r += this.growth;
@@ -76,7 +84,6 @@ class Ripple {
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
 
-    // halo
     const haloA = a * this.halo * 0.35;
     if (haloA > 0.01) {
       const halo = ctx.createRadialGradient(this.cx, this.cy, this.r * 0.8, this.cx, this.cy, this.r * 1.6);
@@ -96,58 +103,42 @@ class Ripple {
 const Spectrum = {
   lastBins: new Uint8Array(0),
   level: 0,
-  // indices for lows/mids/highs (adaptive later)
-  iLow: 8,
-  iMid: 24,
-  iHi: 48
 };
 
-// ===== REPLACE your sampleMusicLevel() with THIS =====
+// ===== Music sampling =====
 function sampleMusicLevel(){
   if (!_analyser) return 0;
-
   const bins = new Uint8Array(_analyser.frequencyBinCount);
   _analyser.getByteFrequencyData(bins);
-
-  // Focus on lows/mids (bass drives impact; mids add texture)
   const len = bins.length;
-  const lowEnd  = Math.max(4, Math.floor(len * 0.04));  // ~40Hz–200Hz
-  const midEnd  = Math.max(12, Math.floor(len * 0.18)); // ~200Hz–1.5kHz
-
+  const lowEnd  = Math.max(4, Math.floor(len * 0.04));
+  const midEnd  = Math.max(12, Math.floor(len * 0.18));
   let lowSum = 0, midSum = 0;
   for (let i = 0; i < lowEnd; i++) lowSum += bins[i];
   for (let i = lowEnd; i < midEnd; i++) midSum += bins[i];
-
-  const lowAvg = lowSum / lowEnd;      // 0..255
+  const lowAvg = lowSum / lowEnd;
   const midAvg = midSum / (midEnd - lowEnd);
-
-  // Weighted energy + transient accent
-  const base = (lowAvg * 0.65 + midAvg * 0.35) / 255;   // 0..1
-  const transient = Math.max(0, (lowAvg - 140) / 115);   // spikes on kicks
+  const base = (lowAvg * 0.65 + midAvg * 0.35) / 255;
+  const transient = Math.max(0, (lowAvg - 140) / 115);
   const level = Math.min(1, Math.pow(base, 0.9) + transient * 0.35);
-
-  // expose lastBins if you need elsewhere
   Spectrum.lastBins = bins;
   Spectrum.level = level;
   return level;
 }
 
-
 // ---------------------------
-// Audio elements and setup (separate audible + analysis)
+// Audio elements and setup (audible + analysis separated)
 // ---------------------------
 function ensureAudioElements() {
-  // Audible audio element (native playback)
   let bgm = document.getElementById('bgm');
   if (!bgm) {
     bgm = document.createElement('audio');
     bgm.id = 'bgm';
     bgm.preload = 'auto';
     bgm.crossOrigin = 'anonymous';
+    bgm.setAttribute('playsinline', 'playsinline');
     document.body.appendChild(bgm);
   }
-
-  // Hidden analysis element (muted, routed into WebAudio)
   let viz = document.getElementById('bgmViz');
   if (!viz) {
     viz = document.createElement('audio');
@@ -162,138 +153,7 @@ function ensureAudioElements() {
   return { bgm, viz };
 }
 
-function setupAudio(config) {
-  const btn = document.getElementById('audioToggle');
-  const { bgm, viz } = ensureAudioElements();
-  if (!btn || !config || !config.src) return;
-
-  // Config with safe defaults
-  audioConfig = {
-    src: config.src,
-    loop: config.loop !== false,
-    volume: typeof config.volume === 'number' ? config.volume : 0.35,
-    autoplay: config.autoplay !== false,
-    remember: config.remember !== false
-  };
-  if (audioConfig.volume < 0.05) audioConfig.volume = 0.35;
-
-  // Set sources only if changed (prevents duplicate loads)
-  if (bgm.src !== audioConfig.src) bgm.src = audioConfig.src;
-  if (viz.src !== audioConfig.src) viz.src = audioConfig.src;
-
-  // Playback props
-  bgm.loop = !!audioConfig.loop;
-  bgm.volume = audioConfig.volume;
-  viz.loop = !!audioConfig.loop;
-  viz.volume = 0;   // analysis element is silent
-
-  // Restore mute pref (default audible unless explicitly saved)
-  const persistedMute = localStorage.getItem('leumas_audio_muted');
-  const initiallyMuted = (persistedMute === null) ? false : (persistedMute === 'true');
-  bgm.muted = initiallyMuted;
-
-  // Mic UI
-  btn.hidden = false;
-  btn.setAttribute('aria-pressed', String(initiallyMuted));
-  btn.textContent = initiallyMuted ? '🔇' : '🎙️';
-
-  // Restore position (per-src) on metadata
-  if (audioConfig.remember && !bgm._posWired) {
-    const posKey = POS_KEY_PREFIX + audioConfig.src;
-    const saved = parseFloat(localStorage.getItem(posKey) || '0');
-    const onMeta = () => {
-      try {
-        if (bgm.duration && saved > 0 && saved < bgm.duration - 1) {
-          bgm.currentTime = saved;
-          viz.currentTime = saved;
-        }
-      } catch(_) {}
-      bgm.removeEventListener('loadedmetadata', onMeta);
-    };
-    bgm.addEventListener('loadedmetadata', onMeta);
-
-    // persist while playing
-    let _posTimer = null;
-    bgm.addEventListener('play', () => {
-      clearInterval(_posTimer);
-      _posTimer = setInterval(() => {
-        try {
-          if (!bgm.paused && !bgm.seeking && bgm.currentTime > 0) {
-            localStorage.setItem(posKey, String(bgm.currentTime));
-          }
-        } catch(_) {}
-      }, 3000);
-    });
-    bgm.addEventListener('pause', () => clearInterval(_posTimer));
-    window.addEventListener('beforeunload', () => {
-      try { localStorage.setItem(posKey, String(bgm.currentTime || 0)); } catch(_) {}
-    });
-    bgm._posWired = true;
-  }
-
-  // Simple sync from audible -> analysis (keep drift low)
-  if (!bgm._syncWired) {
-    const resync = () => {
-      try {
-        if (!Number.isFinite(bgm.currentTime) || !Number.isFinite(viz.currentTime)) return;
-        const drift = Math.abs((viz.currentTime || 0) - (bgm.currentTime || 0));
-        if (drift > 0.5) viz.currentTime = bgm.currentTime;  // snap if drifted
-      } catch(_) {}
-    };
-    viz.addEventListener('canplay', () => { try { viz.currentTime = bgm.currentTime || 0; } catch(_) {} });
-    bgm.addEventListener('timeupdate', () => resync());
-    setInterval(resync, 4000);
-    bgm._syncWired = true;
-  }
-
-  // Initialize Audio Analysis from viz element (muted)
-  initAudioAnalysis(viz);
-
-  // Autoplay attempts
-  const kick = () => { if (!bgm.muted && bgm.paused) bgm.play().catch(()=>{}); viz.play().catch(()=>{}); };
-  if (audioConfig.autoplay) {
-    kick();
-    bgm.addEventListener('canplaythrough', kick, { once: true });
-    viz.addEventListener('canplaythrough', () => viz.play().catch(()=>{}), { once: true });
-  }
-
-  // Mic toggle controls only the audible element
-  if (!btn._wired) {
-    btn.onclick = () => {
-      const pressed = btn.getAttribute('aria-pressed') === 'true'; // pressed==muted
-      const nowMuted = !pressed;
-      btn.setAttribute('aria-pressed', String(nowMuted));
-      btn.textContent = nowMuted ? '🔇' : '🎙️';
-      localStorage.setItem('leumas_audio_muted', String(nowMuted));
-      bgm.muted = nowMuted;
-      if (!nowMuted && bgm.paused) bgm.play().catch(()=>{});
-      if (viz.paused) viz.play().catch(()=>{}); // keep analyser running
-    };
-    btn._wired = true;
-  }
-
-  // First gesture unlock
-  if (!audioInitialized) {
-    const unlock = () => {
-      if (!_audioCtx) {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (Ctx) { _audioCtx = new Ctx(); }
-      } else if (_audioCtx.state === 'suspended') {
-        _audioCtx.resume().catch(()=>{});
-      }
-      const pressed = btn.getAttribute('aria-pressed') === 'true';
-      if (!pressed && bgm.paused) bgm.play().catch(()=>{});
-      if (viz.paused) viz.play().catch(()=>{});
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-    audioInitialized = true;
-  }
-}
-
-// ===== REPLACE your initAudioAnalysis(...) with THIS =====
+// ===== Audio analysis init =====
 function initAudioAnalysis(elViz){
   if (!elViz) return;
 
@@ -310,20 +170,262 @@ function initAudioAnalysis(elViz){
     _mediaSourceMap.set(elViz, _srcNodeViz);
   }
 
-  // Wider FFT + lower smoothing = snappier response
   if (_analyser) { try { _analyser.disconnect(); } catch(_) {} }
   _analyser = _audioCtx.createAnalyser();
-  _analyser.fftSize = 1024;                 // 512 bins
-  _analyser.smoothingTimeConstant = 0.6;    // less averaging, more punch
+  _analyser.fftSize = 1024;
+  _analyser.smoothingTimeConstant = 0.6;
 
   try { _srcNodeViz.connect(_analyser); } catch(_) {}
 }
 
+// ---------------------------
+// Playlist engine
+// ---------------------------
+function clearCutTimer() {
+  if (_cutTimer) { clearTimeout(_cutTimer); _cutTimer = null; }
+}
+function currentTrack() { return _playlist[_trackIndex] || null; }
+function persistTrackIndex() { try { if (_remember) localStorage.setItem(LAST_TRACK_KEY, String(_trackIndex)); } catch(_) {} }
+
+function loadTrackInto(el, track, {applyStart=true} = {}) {
+  if (!el || !track) return;
+  if (el.src !== track.src) el.src = track.src;
+
+  // Restore prior position first
+  if (_remember) {
+    try {
+      const savedPos = parseFloat(localStorage.getItem(POS_KEY_PREFIX + track.src) || '0');
+      if (applyStart && Number.isFinite(savedPos) && savedPos > 0) {
+        el.currentTime = savedPos;
+      }
+    } catch(_) {}
+  }
+  // Optional explicit startAt overrides
+  if (applyStart && Number.isFinite(track.startAt) && track.startAt > 0) {
+    try { el.currentTime = track.startAt; } catch(_) {}
+  }
+}
+
+function armDurationCut(bgm, viz, track) {
+  clearCutTimer();
+  if (!track || !Number.isFinite(track.durationSec) || track.durationSec <= 0) return;
+  const schedule = () => {
+    clearCutTimer();
+    const t0 = Math.max(bgm.currentTime || 0, 0);
+    const remainMs = Math.max(0, (track.durationSec - (t0 - (track.startAt||0))) * 1000);
+    _cutTimer = setTimeout(() => nextTrack('duration-cut'), remainMs);
+  };
+  if (Number.isFinite(bgm.duration)) schedule();
+  else bgm.addEventListener('loadedmetadata', schedule, { once: true });
+}
+
+function wirePositionPersistence(bgm, track) {
+  if (!bgm || !track || !_remember) return;
+  const key = POS_KEY_PREFIX + track.src;
+
+  let timer = null;
+  const save = () => { try { localStorage.setItem(key, String(bgm.currentTime || 0)); } catch(_) {} };
+
+  const onPlay = () => { timer = setInterval(save, 3000); };
+  const onPause = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const onUnload = () => save();
+
+  // Avoid double-wiring
+  if (!bgm._posHandlersWired) {
+    bgm.addEventListener('play', onPlay);
+    bgm.addEventListener('pause', onPause);
+    window.addEventListener('beforeunload', onUnload);
+    bgm._posHandlersWired = true;
+  }
+}
+
+function syncVizToBgm(bgm, viz) {
+  const resync = () => {
+    try {
+      const drift = Math.abs((viz.currentTime || 0) - (bgm.currentTime || 0));
+      if (drift > 0.5) viz.currentTime = bgm.currentTime;
+    } catch(_) {}
+  };
+  viz.addEventListener('canplay', () => { try { viz.currentTime = bgm.currentTime || 0; } catch(_) {} });
+  bgm.addEventListener('timeupdate', resync);
+  const id = setInterval(resync, 4000);
+  if (bgm._syncIntervalId) clearInterval(bgm._syncIntervalId);
+  bgm._syncIntervalId = id;
+}
+
+function loadCurrentTrack({applyStart=true} = {}) {
+  const { bgm, viz } = ensureAudioElements();
+  const tr = currentTrack();
+  if (!tr) return;
+
+  loadTrackInto(bgm, tr, {applyStart});
+  loadTrackInto(viz, tr, {applyStart});
+
+  initAudioAnalysis(viz);
+
+  bgm.loop = (_loopMode === 'track');
+  bgm.volume = _volume;
+  viz.loop = (_loopMode === 'track');
+  viz.volume = 0;
+
+  armDurationCut(bgm, viz, tr);
+  wirePositionPersistence(bgm, tr);
+}
+
+function playCurrent() {
+  const { bgm, viz } = ensureAudioElements();
+  bgm.play().catch(()=>{});
+  viz.play().catch(()=>{});
+}
+
+function nextTrack(reason='next') {
+  clearCutTimer();
+  const cur = currentTrack();
+  try {
+    const { bgm } = ensureAudioElements();
+    if (_remember && cur) {
+      localStorage.setItem(POS_KEY_PREFIX + cur.src, String(bgm.currentTime || 0));
+    }
+  } catch(_) {}
+
+  if (_trackIndex < _playlist.length - 1) _trackIndex++;
+  else {
+    if (_loopMode === 'playlist') _trackIndex = 0;
+    else { const { bgm, viz } = ensureAudioElements(); bgm.pause(); viz.pause(); return; }
+  }
+  persistTrackIndex();
+  loadCurrentTrack({applyStart:true});
+  playCurrent();
+}
+
+function prevTrack() {
+  clearCutTimer();
+  if (_trackIndex > 0) _trackIndex--;
+  else _trackIndex = (_loopMode === 'playlist') ? Math.max(0, _playlist.length - 1) : 0;
+  persistTrackIndex();
+  loadCurrentTrack({applyStart:true});
+  playCurrent();
+}
 
 // ---------------------------
-// Starfield + Black Hole + Chladni Pattern (music reactive)
+// Playlist-aware setupAudio
 // ---------------------------
-// ===== REPLACE your initStars() with THIS =====
+function setupAudio(config) {
+  const btn = document.getElementById('audioToggle') || (() => {
+    // Fallback: create a minimal toggle if not present
+    const b = document.createElement('button');
+    b.id = 'audioToggle';
+    b.className = 'audio-toggle';
+    b.textContent = '🎙️';
+    document.body.appendChild(b);
+    return b;
+  })();
+  const { bgm, viz } = ensureAudioElements();
+  if (!config) return;
+
+  // Normalize config → playlist
+  if (Array.isArray(config.playlist) && config.playlist.length) {
+    _playlist = config.playlist.map(t => ({
+      src: t.src,
+      title: t.title || '',
+      startAt: Number.isFinite(t.startAt) ? t.startAt : 0,
+      durationSec: Number.isFinite(t.durationSec) ? t.durationSec : undefined
+    })).filter(t => !!t.src);
+  } else if (config.src) {
+    _playlist = [{ src: config.src, title: '', startAt: 0 }];
+  } else {
+    return;
+  }
+
+  _loopMode = (config.loop === 'track' || config.loop === 'playlist') ? config.loop : (config.loop ? 'track' : false);
+  _volume = (typeof config.volume === 'number' && config.volume > 0.01) ? config.volume : 0.35;
+  _autoplay = (config.autoplay !== false);
+  _remember = (config.remember !== false);
+
+  // pick initial track index
+  if (_remember) {
+    const savedIdx = parseInt(localStorage.getItem(LAST_TRACK_KEY) || '0', 10);
+    if (Number.isFinite(savedIdx) && savedIdx >= 0 && savedIdx < _playlist.length) _trackIndex = savedIdx;
+    else _trackIndex = 0;
+  } else _trackIndex = 0;
+
+  // Wire mute toggle button
+  const persistedMute = localStorage.getItem('leumas_audio_muted');
+  const initiallyMuted = (persistedMute === null) ? false : (persistedMute === 'true');
+  bgm.muted = initiallyMuted;
+
+  btn.hidden = false;
+  btn.setAttribute('aria-pressed', String(initiallyMuted));
+  btn.textContent = initiallyMuted ? '🔇' : '🎙️';
+
+  if (!btn._wired) {
+    btn.onclick = () => {
+      const pressed = btn.getAttribute('aria-pressed') === 'true';
+      const nowMuted = !pressed;
+      btn.setAttribute('aria-pressed', String(nowMuted));
+      btn.textContent = nowMuted ? '🔇' : '🎙️';
+      localStorage.setItem('leumas_audio_muted', String(nowMuted));
+      bgm.muted = nowMuted;
+      if (!nowMuted && bgm.paused) bgm.play().catch(()=>{});
+      if (viz.paused) viz.play().catch(()=>{});
+    };
+    btn._wired = true;
+  }
+
+  // When a track ends naturally
+  bgm.onended = () => {
+    if (_loopMode === 'track') {
+      loadCurrentTrack({applyStart:true});
+      playCurrent();
+    } else {
+      nextTrack('ended');
+    }
+  };
+
+  // Load and optionally autoplay
+  loadCurrentTrack({applyStart:true});
+  syncVizToBgm(bgm, viz);
+
+  // Autoplay / user-gesture unlock (important for mobile + some desktop policies)
+  const unlock = () => {
+    if (!_audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) { _audioCtx = new Ctx(); }
+    } else if (_audioCtx.state === 'suspended') {
+      _audioCtx.resume().catch(()=>{});
+    }
+    const pressed = btn.getAttribute('aria-pressed') === 'true';
+    if (!pressed && bgm.paused) bgm.play().catch(()=>{});
+    if (viz.paused) viz.play().catch(()=>{});
+    window.removeEventListener('pointerdown', unlock);
+    window.removeEventListener('keydown', unlock);
+  };
+
+  if (!audioInitialized) {
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    audioInitialized = true;
+  }
+
+  if (_autoplay) {
+    bgm.play().catch(()=>{});
+    viz.play().catch(()=>{});
+  }
+
+  // Optional global controls
+  window.LeumasAudio = {
+    next: () => nextTrack('api'),
+    prev: () => prevTrack(),
+    get index() { return _trackIndex; },
+    get track() { return currentTrack(); },
+    setVolume(v) { _volume = Math.max(0, Math.min(1, v)); const { bgm } = ensureAudioElements(); bgm.volume = _volume; },
+    setLoop(mode) { _loopMode = (mode==='track'||mode==='playlist') ? mode : false; const { bgm, viz } = ensureAudioElements(); bgm.loop = (mode==='track'); viz.loop = (mode==='track'); }
+  };
+}
+
+// ---------------------------
+// Starfield + visuals
+// ---------------------------
 function initStars() {
   const canvas = document.getElementById('stars');
   if (!canvas) return;
@@ -332,54 +434,30 @@ function initStars() {
   let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
   let cx=0, cy=0, t=0;
 
-  // simple beat detector
-  const Beat = {
-    avg: 0, dev: 0, last: 0, cooldown: 140, kAvg: 0.02, kDev: 0.04, sens: 1.22,
-    step(v){
-      this.avg += (v - this.avg) * this.kAvg;
-      const d = Math.abs(v - this.avg);
-      this.dev += (d - this.dev) * this.kDev;
-      const now = performance.now();
-      const th = this.avg + this.dev * this.sens;
-      const hit = v > th && (now - this.last > this.cooldown);
-      if (hit) this.last = now;
-      return hit;
-    }
+  const Beat2 = {
+    avg:0, dev:0, last:0, cooldown:140, kAvg:0.02, kDev:0.04, sens:1.22,
+    step(v){ this.avg+=(v-this.avg)*this.kAvg; const d=Math.abs(v-this.avg); this.dev+=(d-this.dev)*this.kDev;
+      const now=performance.now(); const th=this.avg+this.dev*this.sens; const hit=v>th && (now-this.last>this.cooldown); if(hit) this.last=now; return hit; }
   };
 
-  // parallax layers
   const layers = [
     { depth:.3,  stars:[], count:0, color:[205,230,255] },
     { depth:.7,  stars:[], count:0, color:[175,210,255] },
     { depth:1.1, stars:[], count:0, color:[150,190,255] }
   ];
-
-  // shockwave rings on beats
   const ripples = [];
 
-  class Ripple {
-    constructor(r0, power){
-      this.r = r0;
-      this.a = 0.18 + power*0.22;
-      this.w = 12 + power*30;
-      this.g = 4 + power*42;
-      this.fade = 0.985;
-    }
-    step(){
-      this.r += this.g;
-      this.a *= this.fade;
-      return this.a > 0.01;
-    }
+  class Ripple2 {
+    constructor(r0, power){ this.r=r0; this.a=0.18+power*0.22; this.w=12+power*30; this.g=4+power*42; this.fade=0.985; }
+    step(){ this.r+=this.g; this.a*=this.fade; return this.a>0.01; }
     draw(){
       const g = ctx.createRadialGradient(cx, cy, this.r, cx, cy, this.r + this.w);
       g.addColorStop(0, `rgba(140,190,255,${this.a})`);
       g.addColorStop(1, `rgba(140,190,255,0)`);
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, this.r + this.w, 0, Math.PI*2);
-      ctx.arc(cx, cy, this.r, 0, Math.PI*2, true);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, this.r + this.w, 0, Math.PI*2);
+      ctx.arc(cx, cy, this.r, 0, Math.PI*2, true); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
   }
@@ -394,12 +472,7 @@ function initStars() {
         const angle = Math.random()*Math.PI*2;
         const dist  = Math.random()*Math.min(W,H)*0.55 + 40*DPR;
         const r     = (Math.random()*1.2+0.25)*DPR*(0.6 + Lr.depth*0.6);
-        return {
-          angle, dist, r,
-          a: 0.35 + Math.random()*0.65,
-          tw: Math.random()*0.02 + 0.006,
-          seed: (i%97)*0.017
-        };
+        return { angle, dist, r, a: 0.35 + Math.random()*0.65, tw: Math.random()*0.02 + 0.006, seed: (i%97)*0.017 };
       });
     });
   }
@@ -416,27 +489,22 @@ function initStars() {
   window.addEventListener('resize', resize);
   resize();
 
-  let burst = 0; // loudness burst timer
+  let burst = 0;
 
   function frame(){
     t++;
-
-    // real-time audio energy + beat
-    const L = sampleMusicLevel();           // 0..1
-    const beat = Beat.step(L);
+    const L = sampleMusicLevel();
+    const beat = Beat2.step(L);
     if (L > 0.48) burst = Math.min(1, burst + 0.12); else burst *= 0.94;
-
-    if (beat) ripples.push(new Ripple(80 + Math.random()*40, Math.min(1, L*1.4)));
+    if (beat) ripples.push(new Ripple2(80 + Math.random()*40, Math.min(1, L*1.4)));
 
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,W,H);
 
-    // micro camera shake (no scene scaling)
     const shake = L>0.1 ? (L*5*DPR) : 0;
     const offX = (Math.sin(t*0.07)+Math.sin(t*0.013+1.2))*shake*0.5;
     const offY = (Math.cos(t*0.05)+Math.sin(t*0.017-0.6))*shake*0.5;
 
-    // event horizon (fixed position; radius breathes with bass)
     const coreR = (52 + L*110)*DPR;
     const core = ctx.createRadialGradient(cx+offX, cy+offY, 0, cx+offX, cy+offY, coreR*1.75);
     core.addColorStop(0,'rgba(0,0,0,1)');
@@ -445,7 +513,6 @@ function initStars() {
     ctx.fillStyle = core;
     ctx.fillRect(0,0,W,H);
 
-    // accretion disk glow (no global scene scale)
     const diskR = coreR*(3.5 + L*1.7);
     const disk  = ctx.createRadialGradient(cx+offX, cy+offY, coreR*1.06, cx+offX, cy+offY, diskR);
     const diskA = 0.15 + L*0.45;
@@ -457,70 +524,47 @@ function initStars() {
     ctx.fillRect(0,0,W,H);
     ctx.globalCompositeOperation = 'source-over';
 
-    // draw ripples
     for (let i=ripples.length-1; i>=0; i--){
       ripples[i].draw();
       if (!ripples[i].step()) ripples.splice(i,1);
     }
 
-    // stars (now truly driven by audio)
     layers.forEach(Lr=>{
       const [cr,cg,cb] = Lr.color;
-      const swirl = (0.00035 + L*0.004) * (0.6 + Lr.depth*0.9); // rotate faster on music
-      const pull  = 0.9995 + L*0.0015;                          // spiral inward on music
+      const swirl = (0.00035 + L*0.004) * (0.6 + Lr.depth*0.9);
+      const pull  = 0.9995 + L*0.0015;
 
-      // density “dup” draws on bursts (feels fuller when loud)
       const dup = burst>0.25 ? 1 + Math.floor(burst*2) : 1;
 
       for (const s of Lr.stars){
-        // more wobble with music
         const wobble = Math.sin(t*0.03 + s.seed*10) * 0.002 * (1 + L*3);
-
         s.angle += swirl + wobble;
         s.dist  *= pull;
-
-        // respawn past horizon
         if (s.dist < coreR*0.9) {
           s.dist = Math.random()*Math.min(W,H)*0.55 + coreR*1.2;
           s.angle = Math.random()*Math.PI*2;
           s.a = 0.35 + Math.random()*0.65;
         }
-
-        // position (no scene scaling)
         const x = cx + offX + Math.cos(s.angle)*s.dist;
         const y = cy + offY + Math.sin(s.angle)*s.dist;
-
-        // audio-driven size/brightness
         const sizeBoost = 1 + L*0.6 + burst*0.8;
         const rad = s.r * (0.7 + Lr.depth*0.6) * sizeBoost;
-
-        // twinkle with music
         s.a += (Math.random()-0.5) * s.tw * (1 + L*3);
         s.a = Math.max(0.18, Math.min(1, s.a));
-
         for (let d=0; d<dup; d++){
           const jx = d===0 ? 0 : (Math.random()-0.5) * DPR*(1 + L*2);
           const jy = d===0 ? 0 : (Math.random()-0.5) * DPR*(1 + L*2);
-
-          // star core
           ctx.globalAlpha = s.a;
           ctx.fillStyle = `rgba(${cr},${cg},${cb},1)`;
-          ctx.beginPath();
-          ctx.arc(x+jx, y-jy, rad, 0, Math.PI*2);
-          ctx.fill();
-
-          // glow
+          ctx.beginPath(); ctx.arc(x+jx, y-jy, rad, 0, Math.PI*2); ctx.fill();
           ctx.globalAlpha = s.a * (0.22 + L*0.38) * (0.6 + Lr.depth*0.7);
           ctx.fillStyle = `rgba(${Math.max(120,cr-20)},${Math.min(230,cg+10)},255,1)`;
-          ctx.beginPath();
-          ctx.arc(x+jx, y-jy, rad*(2.1 + L*2.4), 0, Math.PI*2);
-          ctx.fill();
+          ctx.beginPath(); ctx.arc(x+jx, y-jy, rad*(2.1 + L*2.4), 0, Math.PI*2); ctx.fill();
         }
       }
       ctx.globalAlpha = 1;
     });
 
-    // subtle scanline + radial streaks (feel of depth, react to energy)
     if (L>0.02){
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = `rgba(120,190,255,${0.03 + L*0.08})`;
@@ -544,23 +588,20 @@ function initStars() {
 
     requestAnimationFrame(frame);
   }
-
   frame();
 }
 
-
 // ---------------------------
-// Aside renderer (with audio button state)
+// Aside renderer (with audio button state) + calls setupAudio
 // ---------------------------
 function renderAside(profile, resumeData) {
   if (!profile) return;
 
-  // Audio (separate paths setup)
-  if (profile.audio && profile.audio.src) {
+  // NEW: supports {audio:{src}} or {audio:{playlist:[...]}}
+  if (profile.audio) {
     setupAudio(profile.audio);
   }
 
-  // Identity
   const avatar = document.getElementById('avatar');
   const nameEl = document.getElementById('name');
   const roleEl = document.getElementById('role');
@@ -582,7 +623,6 @@ function renderAside(profile, resumeData) {
   }
   if (locEl) locEl.textContent = profile.contact?.location || '';
 
-  // Badge
   const badge = document.getElementById('availabilityBadge');
   if (badge) {
     if (profile.available === false || profile.available === undefined) {
@@ -594,14 +634,12 @@ function renderAside(profile, resumeData) {
     }
   }
 
-  // Hire CTA
   const ctaHire = document.getElementById('ctaHire');
   if (ctaHire) {
     if (profile.hireUrl) { ctaHire.hidden = false; ctaHire.href = profile.hireUrl; }
     else { ctaHire.hidden = true; }
   }
 
-  // Social icons (emoji)
   if (linksEl) {
     linksEl.innerHTML = '';
     (profile.links || []).forEach(l => {
@@ -620,7 +658,6 @@ function renderAside(profile, resumeData) {
     });
   }
 
-  // Quick facts
   const qf = document.getElementById('quickFacts');
   const factFocus = document.getElementById('factFocus');
   const factLocation = document.getElementById('factLocation');
@@ -639,7 +676,6 @@ function renderAside(profile, resumeData) {
     } else qf.hidden = true;
   }
 
-  // Ensure mic icon reflects persisted mute
   const btn = document.getElementById('audioToggle');
   if (btn) {
     const persistedMute = localStorage.getItem('leumas_audio_muted');
@@ -656,14 +692,14 @@ function renderAside(profile, resumeData) {
 // ---------------------------
 function renderAbout({ about }) {
   view.innerHTML = `
-    <div class="card">
+    <div class="card" data-docid="about#headline">
       <h2 class="h">${about.headline}</h2>
       ${about.paragraphs.map(p => `<p class="lead">${p}</p>`).join('')}
       <div class="sp-16"></div>
       <h3 class="section-title">What I'm Doing</h3>
       <div class="grid two doing">
-        ${about.doing.map(d => `
-          <div class="item card">
+        ${about.doing.map((d, i) => `
+          <div class="item card" data-docid="about#doing#${i}">
             <div class="icon">${d.icon}</div>
             <div>
               <div class="title">${d.title}</div>
@@ -685,7 +721,7 @@ function renderResume(resume) {
         ${items.map((s, idx) => {
           const keyCls = idx < 3 ? ' key' : '';
           return `
-            <span class="skill-badge${keyCls}" role="listitem" tabindex="0">
+            <span class="skill-badge${keyCls}" role="listitem" tabindex="0" data-docid="skill#${idx}">
               <span class="skill-dot" aria-hidden="true"></span>
               <span>${s.name}</span>
             </span>
@@ -700,10 +736,10 @@ function renderResume(resume) {
       <div class="card">
         <h3 class="section-title">Education</h3>
         <div class="timeline">
-          ${resume.education.map(e => `
-            <div class="trow">
+          ${resume.education.map((e, i) => `
+            <div class="trow" data-docid="edu#${i}">
               <div class="t-when">${e.period}</div>
-              <div class="t-what">${e.school}</div>
+              <div class="t-what">${[e.school, e.degree].filter(Boolean).join(' — ') || e.school}</div>
               ${e.detail ? `<div class="t-desc">${e.detail}</div>` : ''}
             </div>
           `).join('')}
@@ -712,10 +748,10 @@ function renderResume(resume) {
       <div class="card">
         <h3 class="section-title">Experience</h3>
         <div class="timeline">
-          ${resume.experience.map(x => `
-            <div class="trow">
+          ${resume.experience.map((x, i) => `
+            <div class="trow" data-docid="exp#${i}">
               <div class="t-when">${x.period}</div>
-              <div class="t-what">${x.role} — ${x.company}</div>
+              <div class="t-what">${[x.role, x.company].filter(Boolean).join(' — ')}</div>
               ${x.detail ? `<div class="t-desc">${x.detail}</div>` : ''}
             </div>
           `).join('')}
@@ -731,44 +767,145 @@ function renderResume(resume) {
 }
 
 function renderPortfolio(categories, items) {
+  const filtersHTML = categories
+    .map((c, i) => `<button class="filter${c==='All'?' active':''}" data-cat="${c}" aria-pressed="${c==='All'?'true':'false'}" ${i===0?'data-initial':''}>${c}</button>`)
+    .join('');
+
   view.innerHTML = `
     <div class="card">
-      <div class="filters">
-        ${categories.map(c => `<button class="filter${c==='All'?' active':''}" data-cat="${c}">${c}</button>`).join('')}
+      <div class="filters" role="tablist" aria-label="Portfolio categories">
+        ${filtersHTML}
       </div>
       <div class="gallery" id="gallery">
-        ${items.map(tile).join('')}
+        ${items.map((i,idx)=>tile(i, idx)).join('')}
       </div>
     </div>
   `;
 
-  document.querySelectorAll('.filter').forEach(b => {
-    b.addEventListener('click', async () => {
-      document.querySelectorAll('.filter').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-      const cat = b.dataset.cat;
-      const data = await (await fetch(`/api/portfolio?cat=${encodeURIComponent(cat)}`)).json();
-      const gal = document.getElementById('gallery');
-      if (gal) gal.innerHTML = data.items.map(tile).join('');
+  const gal = document.getElementById('gallery');
+  attachTileFX(gal);
+
+  const filterBtns = [...document.querySelectorAll('.filter')];
+  let activeIndex = filterBtns.findIndex(b => b.classList.contains('active'));
+  filterBtns.forEach((b, idx) => {
+    b.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        activeIndex = (idx + (e.key === 'ArrowRight' ? 1 : -1) + filterBtns.length) % filterBtns.length;
+        filterBtns[activeIndex].focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        b.click();
+      }
     });
   });
 
-  function tile(i) {
+  document.querySelectorAll('.filter').forEach(b => {
+    b.addEventListener('click', async () => {
+      document.querySelectorAll('.filter').forEach(x => {
+        x.classList.remove('active');
+        x.setAttribute('aria-pressed', 'false');
+      });
+      b.classList.add('active');
+      b.setAttribute('aria-pressed', 'true');
+
+      const cat = b.dataset.cat;
+      gal.innerHTML = skeletonTiles(6);
+
+      try {
+        const res = await fetch(`/api/portfolio?cat=${encodeURIComponent(cat)}`);
+        const data = await res.json();
+        gal.classList.add('fade-out');
+        setTimeout(() => {
+          gal.innerHTML = (data.items || []).map((i,idx)=>tile(i, idx)).join('') || emptyState();
+          gal.classList.remove('fade-out');
+          attachTileFX(gal);
+          window.LeumasSearch && window.LeumasSearch.ingest('portfolio', data).catch(()=>{});
+        }, 180);
+      } catch (e) {
+        gal.innerHTML = errorState();
+      }
+    });
+  });
+
+  function tile(i, idx) {
     const href = i.link || '#';
     const target = i.link ? '_blank' : '_self';
+    const cat = i.cat || i.category || 'Project';
+    const desc = i.desc || i.description || '';
+    const badge = `<span class="badge">${cat}</span>`;
+    const safeTitle = (i.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const slug = (i.id ? String(i.id) : (i.title||'') ).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || idx;
+    const docid = `portfolio#${slug}`;
     return `
-      <a class="tile" href="${href}" target="${target}" rel="noopener">
-        <img src="${i.thumb}" alt="${i.title}">
-        <div class="cap">${i.title}</div>
+      <a class="tile" href="${href}" target="${target}" rel="noopener" aria-label="${safeTitle}" data-docid="${docid}">
+        <figure class="tile-inner">
+          <img src="${i.thumb}" alt="${safeTitle}" loading="lazy" decoding="async">
+          <figcaption class="cap">
+            <span class="cap-title">${safeTitle}</span>
+            ${badge}
+            ${desc ? `<span class="cap-desc">${desc}</span>` : ``}
+          </figcaption>
+        </figure>
       </a>`;
+  }
+
+  function skeletonTiles(n=6){
+    return Array.from({length:n}).map(() => `
+      <div class="tile sk">
+        <div class="sk-img"></div>
+        <div class="sk-line"></div>
+        <div class="sk-line w60"></div>
+      </div>
+    `).join('');
+  }
+
+  function emptyState(){
+    return `
+      <div class="empty-state">
+        <div class="empty-ring"></div>
+        <p>No projects in this category—try another filter.</p>
+      </div>
+    `;
+  }
+
+  function errorState(){
+    return `
+      <div class="empty-state">
+        <div class="empty-ring err"></div>
+        <p>Couldn’t load projects. Please try again.</p>
+      </div>
+    `;
+  }
+
+  function attachTileFX(root){
+    const tiles = root.querySelectorAll('.tile');
+    const io = new IntersectionObserver((ents) => {
+      ents.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); });
+    }, {threshold: 0.12});
+    tiles.forEach(t => io.observe(t));
+
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+
+    tiles.forEach(t => {
+      t.addEventListener('pointermove', (e) => {
+        const r = t.getBoundingClientRect();
+        const cx = e.clientX - r.left, cy = e.clientY - r.top;
+        const rx = ((cy / r.height) - 0.5) * -4;
+        const ry = ((cx / r.width) - 0.5) * 6;
+        t.style.transform = `perspective(800px) rotateX(${rx}deg) rotateY(${ry}deg) translateZ(0)`;
+      });
+      t.addEventListener('pointerleave', () => { t.style.transform = ''; });
+    });
   }
 }
 
 function renderBlog(posts) {
   view.innerHTML = `
     <div class="grid two">
-      ${posts.map(p => `
-        <article class="post">
+      ${posts.map((p, idx) => `
+        <article class="post" data-docid="blog#${(p.id || (p.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')) || idx}">
           <h3 class="what">${p.title}</h3>
           <div class="meta">${new Date(p.date).toLocaleDateString()}</div>
           <p class="muted">${p.excerpt}</p>
@@ -779,47 +916,139 @@ function renderBlog(posts) {
   `;
 }
 
-function renderContact(contact) {
+function renderContact(contact = {}) {
+  const defaultAddr = "7106 W Grand Ave, Chicago, IL 60707";
+  const addr = (contact.location && String(contact.location).trim()) || defaultAddr;
+  const q = encodeURIComponent(addr);
+  const mapsEmbed = `https://www.google.com/maps?q=${q}&output=embed`;
+  const mapsLink  = `https://www.google.com/maps/search/?api=1&query=${q}`;
+
   view.innerHTML = `
-    <div class="card">
-      <h2 class="h">Contact</h2>
-      <p class="muted">Let's build something great.</p>
-      <div class="sp-16"></div>
-      <form id="cform" class="form">
-        <input class="input" name="name" placeholder="Your name" required>
-        <input class="input" name="email" type="email" placeholder="Your email" required>
-        <textarea class="textarea" name="message" rows="5" placeholder="Your message" required></textarea>
-        <button class="btn" type="submit">Send</button>
-      </form>
-      <div class="sp-16"></div>
-      <div class="lead">
-        <strong>Email:</strong> <a href="mailto:${contact.email}">${contact.email}</a><br>
-        <strong>Phone:</strong> <a href="tel:${contact.phone}">${contact.phone}</a><br>
-        <strong>Location:</strong> ${contact.location}
+    <section class="contact-wrap">
+      <div class="contact-card">
+        <header class="contact-head">
+          <h2 class="h">Let’s build something great</h2>
+          <p class="muted">Tell us what you have in mind—we’ll get back fast.</p>
+        </header>
+
+        <div class="contact-grid">
+          <form id="cform" class="form card-pane" novalidate>
+            <input type="text" name="company" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <label class="label">Your name
+              <input class="input" name="name" placeholder="Jane Doe" required>
+            </label>
+            <label class="label">Your email
+              <input class="input" name="email" type="email" placeholder="you@domain.com" required>
+            </label>
+            <label class="label">Message
+              <textarea class="textarea" name="message" rows="6" placeholder="What are we building?" required></textarea>
+            </label>
+
+            <div class="row">
+              <button class="btn" type="submit">
+                <span class="btn-label">Send message</span>
+                <span class="btn-spinner" aria-hidden="true"></span>
+              </button>
+              <span class="form-note" id="formNote" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+
+          <aside class="details card-pane">
+            <div class="detail-row" data-docid="contact#email">
+              <div class="detail-k">Email</div>
+              <div class="detail-v">
+                ${contact.email ? `<a href="mailto:${contact.email}">${contact.email}</a>` : "—"}
+              </div>
+            </div>
+            <div class="detail-row" data-docid="contact#phone">
+              <div class="detail-k">Phone</div>
+              <div class="detail-v">
+                ${contact.phone ? `<a href="tel:${contact.phone}">${contact.phone}</a>` : "—"}
+              </div>
+            </div>
+            <div class="detail-row" data-docid="contact#location">
+              <div class="detail-k">Location</div>
+              <div class="detail-v">
+                <a href="${mapsLink}" target="_blank" rel="noopener">${addr}</a>
+              </div>
+            </div>
+
+            <div class="map-wrap">
+              <iframe
+                class="map"
+                src="${mapsEmbed}"
+                loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade"
+                aria-label="Map showing ${addr}">
+              </iframe>
+              <a class="map-cta" href="${mapsLink}" target="_blank" rel="noopener">Open in Google Maps</a>
+              <details class="map-alt">
+                <summary>Can’t see the map?</summary>
+                <a href="https://www.openstreetmap.org/search?query=${q}" target="_blank" rel="noopener">
+                  View on OpenStreetMap
+                </a>
+              </details>
+            </div>
+          </aside>
+        </div>
       </div>
-    </div>
+    </section>
   `;
+
+  const note = document.getElementById('formNote');
   const form = document.getElementById('cform');
-  if (form) {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = Object.fromEntries(fd.entries());
-      try {
-        const res = await fetch('/api/contact', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const out = await res.json();
-        alert(out.ok ? 'Thanks — message sent!' : ('Error: ' + out.error));
-        if (out.ok) e.target.reset();
-      } catch (err) {
-        alert('Error sending message.');
-      }
-    });
-  }
+  const btn = form?.querySelector('.btn');
+  const btnLabel = form?.querySelector('.btn-label');
+
+  if (!form) return;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (form.querySelector('input[name="company"]').value) return;
+    if (!form.checkValidity()) { note.textContent = "Please fill out all fields correctly."; return; }
+    const fd = new FormData(form);
+    const payload = Object.fromEntries(fd.entries());
+
+    form.classList.add('is-loading');
+    btn?.setAttribute('disabled', 'true');
+    if (btnLabel) btnLabel.textContent = "Sending…";
+
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const out = await res.json();
+      if (out.ok) { note.textContent = "Thanks — message sent!"; form.reset(); }
+      else { note.textContent = "Error: " + (out.error || "Something went wrong."); }
+    } catch {
+      note.textContent = "Network error while sending.";
+    } finally {
+      form.classList.remove('is-loading');
+      btn?.removeAttribute('disabled');
+      if (btnLabel) btnLabel.textContent = "Send message";
+    }
+  });
 }
+
+// Called by search.js on result click
+window.navigateToSearchHit = function(hit){
+  if (!hit) return;
+  const { tab, id } = hit;
+  go(tab).then(()=>{
+    setTimeout(()=>{
+      try {
+        const target = id ? document.querySelector(`[data-docid="${CSS.escape(id)}"]`) : null;
+        if (target){
+          target.scrollIntoView({ behavior:'smooth', block:'center' });
+          target.classList.add('search-jump');
+          setTimeout(()=>target.classList.remove('search-jump'), 1600);
+        }
+      } catch(_) {}
+    }, 120);
+  });
+};
 
 // ---------------------------
 // Router for tabs
@@ -858,5 +1087,12 @@ tabs.forEach(t => t.addEventListener('click', () => go(t.dataset.tab)));
 const initial = (location.hash.replace('#/', '') || 'about');
 go(initial);
 
-// Init cosmic, music-reactive background
+// Init cosmic, music-reactive background & search
 initStars();
+window.LeumasSearch && window.LeumasSearch.attachUI && window.LeumasSearch.attachUI();
+
+// ===== Optional: Next/Prev buttons if present =====
+const btnNext = document.getElementById('audioNext');
+const btnPrev = document.getElementById('audioPrev');
+btnNext && (btnNext.onclick = () => window.LeumasAudio?.next());
+btnPrev && (btnPrev.onclick = () => window.LeumasAudio?.prev());
