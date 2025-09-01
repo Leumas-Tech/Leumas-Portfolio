@@ -18,13 +18,11 @@
     "autoplay": true,
     "loop": "playlist",              
     "volume": 0.35,
-    "remember": true,
+    "remember": false,
     "playlist": [
       {
         "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140495/Audio/I_Don_t_Care_feat_jhwuhc.mp3",
-        "title": "I Don't Care",
-        "startAt": 0,               
-        "durationSec": 75           
+        "title": "I Don't Care"        
       },
       {
         "src": "https://res.cloudinary.com/dx25lltre/video/upload/v1720140285/Audio/Warriors_ncdyyl.mp3",

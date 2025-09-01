@@ -63,6 +63,161 @@ const Spectrum = {
   level: 0,
 };
 
+
+
+
+
+// ---------------------------
+// Entrance Animations (styles + helpers)
+// ---------------------------
+function ensureAnimStyles(){
+  if (document.getElementById('leumas-anim-styles')) return;
+  const css = `
+  /* base */
+  .will-anim { will-change: transform, opacity; }
+
+  /* slide/fade ins */
+  @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
+  @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+  @keyframes slideIn { from { opacity:0; transform: translateY(24px) scale(.98); } to { opacity:1; transform:none; } }
+  @keyframes cardPop { from { opacity:0; transform: translateY(14px) scale(.985); } to { opacity:1; transform:none; } }
+
+  /* applied classes */
+  .anim-fadeUp   { animation: fadeUp .48s cubic-bezier(.22,.61,.36,1) both; }
+  .anim-fadeIn   { animation: fadeIn .42s ease-out both; }
+  .anim-slideIn  { animation: slideIn .55s cubic-bezier(.22,.61,.36,1) both; }
+  .anim-cardPop  { animation: cardPop .6s cubic-bezier(.2,.7,.3,1) both; }
+
+  /* tiny stagger helpers */
+  [data-stagger] > * { opacity:0; transform: translateY(10px); }
+  [data-stagger].in > * { opacity:1; transform:none; transition: transform .45s cubic-bezier(.22,.61,.36,1), opacity .35s ease-out; }
+  [data-stagger].in > * { transition-delay: var(--stagger, 0ms); }
+
+  /* caret for typewriter */
+  .tw-caret::after{
+    content:''; display:inline-block; width:.6ch; height:1em; vertical-align:-0.15em; 
+    background: currentColor; margin-left:.1ch; opacity:.8; animation: twBlink 1s step-end infinite;
+  }
+  @keyframes twBlink { 50% { opacity:0; } }
+  `;
+  const style = document.createElement('style');
+  style.id = 'leumas-anim-styles';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+ensureAnimStyles();
+
+/* ---- text animation helpers (typewriter + decrypt) ---- */
+function typewriterIn(el, speed = 12, keepCaret = false){
+  if (!el || el._twRunning) return;
+  const txt = el.textContent;
+  el.textContent = '';
+  el.classList.add('tw-caret');
+  el._twRunning = true;
+
+  let i = 0;
+  const tick = () => {
+    // write in chunks for speed
+    const chunk = 3 + Math.floor(18 / Math.max(1,speed));
+    i = Math.min(txt.length, i + chunk);
+    el.textContent = txt.slice(0, i);
+    if (i < txt.length) requestAnimationFrame(tick);
+    else {
+      el._twRunning = false;
+      if (!keepCaret) el.classList.remove('tw-caret');
+    }
+  };
+  tick();
+}
+
+function decryptIn(el, duration = 380){
+  if (!el || el._decRunning) return;
+  const glyphs = '█▓▒░#%@&$§*+<>/\\=~-|_';
+  const src = el.textContent;
+  const N = src.length;
+  const start = performance.now();
+  el._decRunning = true;
+
+  const step = (t) => {
+    const p = Math.min(1, (t - start) / duration);
+    const reveal = Math.floor(N * p);
+    let out = '';
+    for (let i=0;i<N;i++){
+      out += (i < reveal) ? src[i] : glyphs[(i*7 + Math.floor(t/16)) % glyphs.length];
+    }
+    el.textContent = out;
+    if (p < 1) requestAnimationFrame(step);
+    else { el.textContent = src; el._decRunning = false; }
+  };
+  requestAnimationFrame(step);
+}
+
+/* ---- container initializer: mark and animate common elements ---- */
+function initViewAnimations(container){
+  if (!container) return;
+  const root = container instanceof Element ? container : document;
+
+  // Text: titles & leads → fast decrypt or typewriter
+  root.querySelectorAll('.h, .section-title').forEach((el, idx) => {
+    el.classList.add('will-anim');
+    // decrypt for headings, slight delay by index
+    setTimeout(()=> decryptIn(el, 420), 60 * idx);
+  });
+  root.querySelectorAll('.lead').forEach((el, idx) => {
+    el.classList.add('will-anim');
+    setTimeout(()=> typewriterIn(el, 14), 90 * idx);
+  });
+
+  // Cards / timeline rows
+  const cardLike = root.querySelectorAll('.card, .trow, .skills-card, .post, .tile');
+  cardLike.forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(14px)';
+    el.classList.add('will-anim');
+  });
+
+  // Stagger groups: grids, timelines, galleries
+  root.querySelectorAll('.timeline, .grid.two, .gallery').forEach(group => {
+    group.setAttribute('data-stagger','');
+  });
+
+  // IO to reveal on enter
+  const io = new IntersectionObserver((ents) => {
+    ents.forEach((e, i) => {
+      if (!e.isIntersecting) return;
+      const el = e.target;
+      // choose a motion class based on element type
+      if (el.matches('.card, .skills-card')) el.classList.add('anim-cardPop');
+      else if (el.matches('.trow, .post')) el.classList.add('anim-slideIn');
+      else el.classList.add('anim-fadeUp');
+
+      el.style.opacity = '';
+      el.style.transform = '';
+      io.unobserve(el);
+    });
+  }, { threshold: 0.16 });
+
+  cardLike.forEach(el => io.observe(el));
+
+  // Stagger in children once group appears
+  const ioGroup = new IntersectionObserver((ents) => {
+    ents.forEach((e)=>{
+      if (!e.isIntersecting) return;
+      const group = e.target;
+      const kids = [...group.children];
+      kids.forEach((kid, i) => {
+        kid.style.setProperty('--stagger', `${i*60}ms`);
+      });
+      group.classList.add('in');
+      ioGroup.unobserve(group);
+    });
+  }, { threshold: 0.2 });
+  root.querySelectorAll('[data-stagger]').forEach(g => ioGroup.observe(g));
+}
+
+
+
+
 // ===== Music sampling =====
 function sampleMusicLevel(){
   if (!_analyser) return 0;
@@ -1100,6 +1255,8 @@ function renderAbout({ about }) {
       </div>
     </div>
   `;
+    initViewAnimations(view); // ← add
+
 }
 
 function renderResume(resume) {
@@ -1119,6 +1276,7 @@ function renderResume(resume) {
         }).join('')}
       </div>
     `;
+    
   }
 
   view.innerHTML = `
@@ -1154,6 +1312,8 @@ function renderResume(resume) {
       ${renderSkills(resume.skills)}
     </div>
   `;
+    initViewAnimations(view); // ← add
+
 }
 
 function renderPortfolio(categories, items) {
@@ -1171,6 +1331,7 @@ function renderPortfolio(categories, items) {
       </div>
     </div>
   `;
+  initViewAnimations(view); // ← add
 
   const gal = document.getElementById('gallery');
   attachTileFX(gal);
@@ -1304,6 +1465,8 @@ function renderBlog(posts) {
       `).join('')}
     </div>
   `;
+    initViewAnimations(view); // ← add
+
 }
 
 function renderContact(contact = {}) {
@@ -1384,6 +1547,7 @@ function renderContact(contact = {}) {
       </div>
     </section>
   `;
+  initViewAnimations(view); // ← add
 
   const note = document.getElementById('formNote');
   const form = document.getElementById('cform');
